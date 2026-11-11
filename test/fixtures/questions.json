@@ -1,0 +1,30 @@
+[
+  {
+    "external_id": "TEST-SINGLE-001",
+    "version_no": 1,
+    "question_type": "single_choice",
+    "stem": "下列哪个图形有三条边？",
+    "options": [
+      { "id": "A", "text": "三角形" },
+      { "id": "B", "text": "圆形" }
+    ]
+  },
+  {
+    "external_id": "TEST-MULTIPLE-001",
+    "version_no": 1,
+    "question_type": "multiple_choice",
+    "stem": "请选择所有偶数。",
+    "options": [
+      { "id": "A", "text": "2" },
+      { "id": "B", "text": "3" },
+      { "id": "C", "text": "4" }
+    ]
+  },
+  {
+    "external_id": "TEST-BOOLEAN-001",
+    "version_no": 1,
+    "question_type": "true_false",
+    "stem": "一个星期有七天。",
+    "options": []
+  }
+]

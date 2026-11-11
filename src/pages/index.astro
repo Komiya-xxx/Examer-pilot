@@ -1,0 +1,89 @@
+---
+import { EXAMERFRAME_PRIVACY_RETENTION, EXAMERFRAME_PRIVACY_CONTACT } from "astro:env/server";
+const retention = EXAMERFRAME_PRIVACY_RETENTION?.trim();
+const contact = EXAMERFRAME_PRIVACY_CONTACT?.trim();
+---
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ExamerFrame</title>
+  </head>
+  <body>
+    <main>
+      <h1>ExamerFrame</h1>
+      <p>医学题目发放与质量评价平台</p>
+      <p>你可以匿名参与，无需姓名、邮箱或手机号。同一浏览器可恢复已保存的会话。清除浏览器数据或换设备后，原会话可能无法恢复。</p>
+
+      <section id="active-round" aria-labelledby="round-title" hidden>
+        <h2 id="round-title"></h2>
+        <p id="round-description"></p>
+        <p id="round-size"></p>
+      </section>
+      <section id="saved-session" aria-labelledby="session-title" hidden>
+        <h2 id="session-title">答题会话</h2>
+        <p id="session-progress"></p>
+      </section>
+      <section id="current-question" aria-labelledby="question-progress" hidden>
+        <h2 id="question-progress"></h2>
+        <p id="question-type"></p>
+        <p id="question-stem"></p>
+        <form id="answer-form" novalidate hidden>
+          <fieldset id="answer-options" hidden>
+            <legend>选项</legend>
+            <ol id="question-options"></ol>
+          </fieldset>
+          <p>请选择答案后提交，刷新页面可恢复当前进度。</p>
+          <button id="submit-answer" type="submit" disabled>提交答案</button>
+        </form>
+        <form id="rating-form" novalidate hidden>
+          <fieldset id="rating-options" disabled>
+            <legend>题目整体质量</legend>
+            <label><input type="radio" name="quality" value="low" required /> 低</label>
+            <label><input type="radio" name="quality" value="medium" required /> 中</label>
+            <label><input type="radio" name="quality" value="high" required /> 高</label>
+          </fieldset>
+          <p>你的评价可能影响这道题今后被发放的概率。</p>
+          <button id="submit-rating" type="submit" disabled>提交评价</button>
+        </form>
+        <ol id="review-options" hidden></ol>
+      </section>
+
+      <p id="lobby-status" role="status">正在查看参与状态…</p>
+      <button id="enter-lobby" type="button" disabled>开始</button>
+      <noscript>请启用 JavaScript 以匿名参与。</noscript>
+
+      <section id="privacy" aria-labelledby="privacy-title">
+        <h2 id="privacy-title">隐私说明</h2>
+        <h3>我们收集的数据</h3>
+        <ul>
+          <li>一个随机会话 ID（匿名 ID），用于在同一浏览器中恢复你已保存的会话。</li>
+          <li>你提交的答案。</li>
+          <li>你对题目的评价（低 / 中 / 高）。</li>
+          <li>每次提交的时间。</li>
+        </ul>
+        <p>我们不会要求姓名、邮箱或手机号。</p>
+
+        <h3>评价如何使用</h3>
+        <p>
+          系统会结合多位参与者的评价，调整这道题以后被发放的概率。
+        </p>
+
+        <h3>保存期限与联系方式</h3>
+        {retention && contact ? (
+          <>
+            <p>数据保存期限：{retention}</p>
+            <p>隐私问题与数据删除途径：{contact}</p>
+          </>
+        ) : (
+          <p>本地测试环境。试点开放前将在此公布数据保存期限、联系方式与删除途径。</p>
+        )}
+      </section>
+    </main>
+
+    <script>
+      import "../scripts/participant-lobby";
+    </script>
+  </body>
+</html>

@@ -1,0 +1,48 @@
+#:schema https://supabase.com/schemas/config/v1.json
+project_id = "examerframe"
+
+[api]
+port = 54321
+schemas = ["public"]
+auto_expose_new_tables = false
+
+[db]
+port = 54322
+major_version = 17
+
+[db.seed]
+enabled = false
+
+[auth]
+site_url = "http://127.0.0.1:4321"
+enable_anonymous_sign_ins = true
+
+[auth.rate_limit]
+anonymous_users = 30
+
+[realtime]
+enabled = false
+
+[storage]
+enabled = false
+
+[edge_runtime]
+enabled = true
+
+[edge_runtime.secrets]
+EXAMERFRAME_ALLOWED_ORIGINS = "http://127.0.0.1:4321,http://localhost:4321"
+
+[functions.get-active-round]
+verify_jwt = false
+
+[functions.start-or-resume-session]
+verify_jwt = false
+
+[functions.get-current-question]
+verify_jwt = false
+
+[functions.submit-answer]
+verify_jwt = false
+
+[functions.submit-rating]
+verify_jwt = false

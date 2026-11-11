@@ -1,0 +1,88 @@
+name: Deploy GitHub Pages
+
+# Manual only: a human decides when to publish. Builds are allowed only from
+# `main`, so a dispatch from another branch fails instead of deploying
+# unreviewed code.
+on:
+  workflow_dispatch:
+
+# Least privilege by default; the deploy job requests exactly what Pages
+# needs (write Pages, OIDC token) and nothing else.
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build static site
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Provides `origin` (https://<owner>.github.io) and `base_path`
+      # ("/" or "/<repo>/") for the current repository.
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      # Values come from repository configuration, never from the workflow
+      # file. Passing them by name through `env` keeps them out of shell
+      # command lines, logs and YAML interpolation. Repository variables
+      # (`vars.*`) hold non-secret public configuration only.
+      - name: Build
+        env:
+          EXAMERFRAME_SITE_URL: ${{ steps.pages.outputs.origin }}
+          EXAMERFRAME_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          PUBLIC_SUPABASE_URL: ${{ vars.PUBLIC_SUPABASE_URL }}
+          PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          EXAMERFRAME_PRIVACY_RETENTION: ${{ vars.EXAMERFRAME_PRIVACY_RETENTION }}
+          EXAMERFRAME_PRIVACY_CONTACT: ${{ vars.EXAMERFRAME_PRIVACY_CONTACT }}
+        run: |
+          node scripts/validate-build-config.mjs
+          npm run build
+
+      - name: Scan static output for private data
+        run: node scripts/check-static-output.mjs dist
+
+      # Only the scanned output is uploaded; no other files leave the runner.
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
