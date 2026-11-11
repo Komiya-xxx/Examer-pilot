@@ -50,39 +50,43 @@ const contactEmail = contact?.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/)?.[0];
         <p id="question-stem" class="question-stem"></p>
 
         <form id="answer-form" novalidate>
-          <fieldset id="answer-options">
-            <legend class="visually-hidden">选择答案</legend>
-            <ol id="question-options" class="choice-list"></ol>
-          </fieldset>
-          <ol id="review-options" class="choice-list" aria-label="已作答题目的选项" hidden></ol>
+          <div class="answer-content">
+            <fieldset id="answer-options">
+              <legend class="visually-hidden">选择答案</legend>
+              <ol id="question-options" class="choice-list"></ol>
+            </fieldset>
+            <ol id="review-options" class="choice-list" aria-label="已作答题目的选项" hidden></ol>
 
-          <section id="answer-review" class="answer-review" aria-labelledby="answer-verdict" hidden>
-            <h3 id="answer-verdict" tabindex="-1" role="status"></h3>
-            <h4 class="answer-review-label">标准答案</h4>
-            <p id="standard-answer"></p>
-            <h4 class="answer-review-label">解析</h4>
-            <p id="answer-explanation"></p>
-            <h4 class="answer-review-label">你的选择</h4>
-            <p id="saved-answer"></p>
-          </section>
+            <section id="answer-review" class="answer-review" aria-labelledby="answer-verdict" hidden>
+              <h3 id="answer-verdict" tabindex="-1" role="status"></h3>
+              <h4 class="answer-review-label">标准答案</h4>
+              <p id="standard-answer"></p>
+              <h4 class="answer-review-label">解析</h4>
+              <p id="answer-explanation"></p>
+              <h4 class="answer-review-label">你的选择</h4>
+              <p id="saved-answer"></p>
+            </section>
+          </div>
 
-          <fieldset id="rating-options" class="quality-panel" aria-describedby="quality-purpose quality-feedback" hidden>
-            <legend>题目整体质量 <span class="quality-optional">（可选）</span></legend>
-            <p id="quality-purpose" class="quality-purpose">您的评价将会改善后续的题目质量</p>
-            <div class="quality-choices">
-              <label class="quality-choice"><input type="radio" name="quality" value="low" /> <span>低</span></label>
-              <label class="quality-choice"><input type="radio" name="quality" value="medium" /> <span>中</span></label>
-              <label class="quality-choice"><input type="radio" name="quality" value="high" /> <span>高</span></label>
+          <div class="question-side">
+            <fieldset id="rating-options" class="quality-panel" aria-describedby="quality-purpose quality-feedback" hidden>
+              <legend>题目整体质量 <span class="quality-optional">（可选）</span></legend>
+              <p id="quality-purpose" class="quality-purpose">您的评价将会改善后续的题目质量</p>
+              <div class="quality-choices">
+                <label class="quality-choice"><input type="radio" name="quality" value="low" /> <span>低</span></label>
+                <label class="quality-choice"><input type="radio" name="quality" value="medium" /> <span>中</span></label>
+                <label class="quality-choice"><input type="radio" name="quality" value="high" /> <span>高</span></label>
+              </div>
+              <p id="quality-feedback" class="quality-feedback" role="status">不选时按「中」记录。</p>
+              <div class="quality-actions">
+                <button id="save-rating" class="secondary-button" type="button" disabled>保存评价</button>
+              </div>
+            </fieldset>
+
+            <div class="question-actions">
+              <button id="submit-answer" class="primary-button" type="submit" disabled>提交答案</button>
+              <p id="question-status" role="status"></p>
             </div>
-            <p id="quality-feedback" class="quality-feedback" role="status">不选时按「中」记录。</p>
-            <div class="quality-actions">
-              <button id="save-rating" class="secondary-button" type="button" disabled>保存评价</button>
-            </div>
-          </fieldset>
-
-          <div class="question-actions">
-            <button id="submit-answer" class="primary-button" type="submit" disabled>提交答案</button>
-            <p id="question-status" role="status"></p>
           </div>
         </form>
       </article>

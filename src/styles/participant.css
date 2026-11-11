@@ -493,6 +493,33 @@ summary:focus-visible {
   gap: 1rem;
 }
 
+/* Answer layout wrappers: transparent by default so phones and unanswered
+   states keep the original stacked flow. */
+#answer-form > .answer-content,
+#answer-form > .question-side {
+  display: contents;
+}
+
+/* Wide screens, after answering: explanation left, quality rating right. */
+@media (min-width: 60rem) and (pointer: fine) {
+  #answer-form:has(#rating-options:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr) 17.5rem;
+    column-gap: 1.25rem;
+    align-items: start;
+  }
+
+  #answer-form:has(#rating-options:not([hidden])) > :is(.answer-content, .question-side) {
+    display: grid;
+    gap: 1rem;
+    min-inline-size: 0;
+  }
+
+  #answer-form:has(#rating-options:not([hidden])) > .question-side {
+    position: sticky;
+    inset-block-start: 1rem;
+  }
+}
+
 .question-card legend {
   color: var(--ink-muted);
   font-size: 0.8rem;
