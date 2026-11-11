@@ -1,86 +1,106 @@
 ---
 import { EXAMERFRAME_PRIVACY_RETENTION, EXAMERFRAME_PRIVACY_CONTACT } from "astro:env/server";
+import "../styles/participant.css";
+
 const retention = EXAMERFRAME_PRIVACY_RETENTION?.trim();
 const contact = EXAMERFRAME_PRIVACY_CONTACT?.trim();
+const contactEmail = contact?.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/)?.[0];
 ---
 <!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ExamerFrame</title>
+    <meta name="description" content="法医病理学 匿名答题与题目质量反馈。" />
+    <title>法医病理学</title>
   </head>
   <body>
-    <main>
-      <h1>ExamerFrame</h1>
-      <p>医学题目发放与质量评价平台</p>
-      <p>你可以匿名参与，无需姓名、邮箱或手机号。同一浏览器可恢复已保存的会话。清除浏览器数据或换设备后，原会话可能无法恢复。</p>
+    <main class="quiz-shell">
+      <header class="quiz-hero">
+        <p class="hero-kicker">医学题库 · 匿名答题</p>
+        <h1>法医病理学</h1>
+        <p class="hero-copy">一道一道来。同一浏览器可继续已保存的答题进度。</p>
+        <section id="active-round" class="round-meta" aria-labelledby="round-title" hidden>
+          <h2 id="round-title"></h2>
+          <p id="round-description"></p>
+          <p id="round-size"></p>
+        </section>
+      </header>
 
-      <section id="active-round" aria-labelledby="round-title" hidden>
-        <h2 id="round-title"></h2>
-        <p id="round-description"></p>
-        <p id="round-size"></p>
+      <section id="saved-session" class="session-strip" aria-labelledby="session-title" hidden>
+        <div class="session-summary">
+          <h2 id="session-title">答题进度</h2>
+          <p id="session-progress"></p>
+        </div>
+        <ol id="question-map" class="question-map" aria-label="题目进度"></ol>
       </section>
-      <section id="saved-session" aria-labelledby="session-title" hidden>
-        <h2 id="session-title">答题会话</h2>
-        <p id="session-progress"></p>
-      </section>
-      <section id="current-question" aria-labelledby="question-progress" hidden>
-        <h2 id="question-progress"></h2>
-        <p id="question-type"></p>
-        <p id="question-stem"></p>
-        <form id="answer-form" novalidate hidden>
-          <fieldset id="answer-options" hidden>
-            <legend>选项</legend>
-            <ol id="question-options"></ol>
+
+      <div id="status-card" class="status-card">
+        <p id="lobby-status" role="status">正在准备答题界面…</p>
+        <button id="enter-lobby" class="secondary-button" type="button" hidden>重试</button>
+        <noscript>请启用 JavaScript 以匿名参与。</noscript>
+      </div>
+
+      <article id="current-question" class="question-card" aria-labelledby="question-progress" hidden>
+        <div class="question-heading">
+          <h2 id="question-progress" tabindex="-1"></h2>
+          <p id="question-type" class="question-type"></p>
+        </div>
+        <p id="question-stem" class="question-stem"></p>
+
+        <form id="answer-form" novalidate>
+          <fieldset id="answer-options">
+            <legend class="visually-hidden">选择答案</legend>
+            <ol id="question-options" class="choice-list"></ol>
           </fieldset>
-          <p>请选择答案后提交，刷新页面可恢复当前进度。</p>
-          <button id="submit-answer" type="submit" disabled>提交答案</button>
-        </form>
-        <form id="rating-form" novalidate hidden>
-          <fieldset id="rating-options" disabled>
-            <legend>题目整体质量</legend>
-            <label><input type="radio" name="quality" value="low" required /> 低</label>
-            <label><input type="radio" name="quality" value="medium" required /> 中</label>
-            <label><input type="radio" name="quality" value="high" required /> 高</label>
+          <ol id="review-options" class="choice-list" aria-label="已作答题目的选项" hidden></ol>
+
+          <fieldset id="rating-options" class="quality-panel" aria-describedby="quality-feedback">
+            <legend>题目整体质量 <span class="quality-optional">（可选）</span></legend>
+            <div class="quality-choices">
+              <label class="quality-choice"><input type="radio" name="quality" value="low" /> <span>低</span></label>
+              <label class="quality-choice"><input type="radio" name="quality" value="medium" /> <span>中</span></label>
+              <label class="quality-choice"><input type="radio" name="quality" value="high" /> <span>高</span></label>
+            </div>
+            <p id="quality-feedback" class="quality-feedback" role="status">不选时按「中」记录。</p>
           </fieldset>
-          <p>你的评价可能影响这道题今后被发放的概率。</p>
-          <button id="submit-rating" type="submit" disabled>提交评价</button>
+
+          <div class="question-actions">
+            <button id="submit-answer" class="primary-button" type="submit" disabled>提交并继续</button>
+            <p id="question-status" role="status"></p>
+          </div>
         </form>
-        <ol id="review-options" hidden></ol>
-      </section>
+      </article>
+    </main>
 
-      <p id="lobby-status" role="status">正在查看参与状态…</p>
-      <button id="enter-lobby" type="button" disabled>开始</button>
-      <noscript>请启用 JavaScript 以匿名参与。</noscript>
-
-      <section id="privacy" aria-labelledby="privacy-title">
-        <h2 id="privacy-title">隐私说明</h2>
-        <h3>我们收集的数据</h3>
-        <ul>
-          <li>一个随机会话 ID（匿名 ID），用于在同一浏览器中恢复你已保存的会话。</li>
-          <li>你提交的答案。</li>
-          <li>你对题目的评价（低 / 中 / 高）。</li>
-          <li>每次提交的时间。</li>
-        </ul>
-        <p>我们不会要求姓名、邮箱或手机号。</p>
-
+    <dialog id="privacy" class="notice-dialog" aria-labelledby="privacy-title">
+      <p class="notice-kicker">参与前，请了解</p>
+      <h2 id="privacy-title" tabindex="-1" autofocus>试点公告</h2>
+      <div class="notice-content">
+        <h3>隐私说明</h3>
+        <p>页面打开后会尝试创建或恢复匿名会话，无需姓名、邮箱或手机号。我们保存匿名标识、你提交的答案和评价，以及提交时间。同一浏览器可恢复进度；清除浏览器数据或换设备后，原会话可能无法恢复。</p>
         <h3>评价如何使用</h3>
-        <p>
-          系统会结合多位参与者的评价，调整这道题以后被发放的概率。
-        </p>
-
+        <p>你的评价可能影响这道题今后被发放的概率。系统会汇总多位参与者的评价；不主动选择时，提交答案会同时记录「中」。</p>
         <h3>保存期限与联系方式</h3>
         {retention && contact ? (
           <>
             <p>数据保存期限：{retention}</p>
-            <p>隐私问题与数据删除途径：{contact}</p>
+            <p>隐私问题与数据删除：{contactEmail === contact ? <a href={`mailto:${contact}`}>{contact}</a> : contact}</p>
           </>
         ) : (
           <p>本地测试环境。试点开放前将在此公布数据保存期限、联系方式与删除途径。</p>
         )}
-      </section>
-    </main>
+      </div>
+      <form method="dialog" class="notice-actions">
+        <button id="dismiss-privacy" class="primary-button" type="submit">知道了，关闭公告</button>
+      </form>
+    </dialog>
+
+    {contact && (
+      <footer class="contact-footer">
+        联系方式：{contactEmail ? <a href={`mailto:${contactEmail}`}>{contactEmail}</a> : contact}
+      </footer>
+    )}
 
     <script>
       import "../scripts/participant-lobby";

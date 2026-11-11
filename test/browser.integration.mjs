@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pilotFixture } from "./support/pilot-fixture.mjs";
-import { localApiConfig } from "./support/local-supabase.mjs";
+import { localApiConfig, localDatabase } from "./support/local-supabase.mjs";
 
 // The site is served by `npm run preview`; the Edge Functions accept only the
 // loopback origins from config.toml, so the page must stay on 127.0.0.1.
@@ -131,17 +131,16 @@ try {
     return "!!" + selector(s) + " && !" + selector(s) + ".disabled && !" + selector(s) + ".closest('[hidden]')";
   }
   const isEnabled = s => page(enabled(s));
-  const bodyText = () => page("document.body?.innerText");
   const contains = text => page("document.body?.innerText?.includes(" + JSON.stringify(text) + ")");
-  const start = "#enter-lobby";
-  const answer = "#submit-answer";
-  const rating = "#submit-rating";
-  const choice = "#answer-form input[type=radio], #answer-form input[type=checkbox]";
-  const ratingChoice = "#rating-form input[type=radio]";
-  const retryFailed = async label =>
-    waitFor(async () => (await isEnabled(label === "answer" ? answer : rating)) && (await contains("重试")),
-      "retry after failed " + label);
-
+  const submit = "#submit-answer";
+  const choice = '#answer-options input[name="answer"]';
+  const rating = (value) => `#rating-options input[value="${value}"]`;
+  const chosen = () => page('document.querySelector(\'#rating-options input:checked\')?.value ?? null');
+  const questionVisible = () => page("!!document.querySelector('#current-question:not([hidden])')");
+  const position = (number) => page(selector("#question-progress") + "?.textContent === " + JSON.stringify(`第 ${number} 题`));
+  const retryFailed = async label => waitFor(
+    async () => (await isEnabled(submit)) && (await contains("重试")), "retry after failed " + label,
+  );
   // The page must never leave the configured local origin, including its own
   // redirects. Wire a navigation hook before the first navigate so any off-origin
   // navigation is caught and fails the run immediately.
@@ -171,71 +170,89 @@ try {
 
   await call("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, mobile: true, deviceScaleFactor: 1 });
   await call("Page.navigate", { url: site.href });
-  await waitFor(() => isEnabled(start), "start button");
-  if (navigationErrors.length) throw new Error(navigationErrors[0]);
-  await click(start);
+  await waitFor(() => page("document.querySelector('#privacy')?.open"), "first-visit privacy notice");
+  assert.ok(await contains(probabilityNotice));
   participant = await waitFor(() => page(`Object.keys(localStorage).filter(k=>k.startsWith("examerframe-auth-"))
-    .map(k=>JSON.parse(localStorage.getItem(k))?.user?.id).find(Boolean)`), "browser anonymous identity");
-  await waitFor(() => page("!!" + selector(choice)), "first answer choices");
+    .map(k=>JSON.parse(localStorage.getItem(k))?.user?.id).find(Boolean)`), "automatic anonymous identity");
+  await waitFor(questionVisible, "automatic first question without clicking Start");
+  assert.equal(await page("document.querySelector('#enter-lobby')?.hidden"), true);
+  await click("#dismiss-privacy");
+  await waitFor(() => page("!document.querySelector('#privacy')?.open"), "dismissed notice");
   assert.equal(await page("document.documentElement.scrollWidth === document.documentElement.clientWidth"), true,
     "The mobile layout must not scroll sideways");
+  assert.equal(await page("document.querySelectorAll('.question-map li').length"), 3);
   const stem = await page(selector("#question-stem") + "?.textContent");
   assert.ok(stem, "The first question stem is shown");
 
-  // A failed answer keeps the selection so the user can simply retry.
   await call("Network.enable");
   await call("Network.setBlockedURLs", { urls: ["*submit-answer*"] });
   await click(choice);
-  await waitFor(() => isEnabled(answer), "answer selected");
-  await click(answer);
+  await click(rating("low"));
+  assert.ok(await contains("今后可能更少发放"), "Low rating explains its effect");
+  await click(submit);
   await retryFailed("answer");
   assert.ok(await page("Array.from(document.querySelectorAll(" + JSON.stringify(choice) + ")).some(x=>x.checked)"),
-    "A failed answer submission preserves the selection");
-  await call("Network.setBlockedURLs", { urls: [] });
-  await click(answer);
-  await waitFor(() => contains(probabilityNotice), "pending rating");
+    "A failed answer submission preserves the answer");
+  assert.equal(await chosen(), "low", "A failed answer submission preserves the rating");
 
-  // A reload restores the server-side step and the same pending question.
+  await call("Network.setBlockedURLs", { urls: ["*submit-rating*"] });
+  await click(submit);
+  await retryFailed("rating");
+  assert.ok(await page("document.querySelector('#review-options:not([hidden])')?.children.length"),
+    "The saved answer is read-only while its rating is pending");
+  assert.equal(await chosen(), "low");
   await reloadAndWait();
-  await waitFor(() => contains(probabilityNotice), "restored pending rating");
+  await waitFor(() => page("!!document.querySelector('#review-options:not([hidden]) li')"), "restored pending rating");
   assert.equal(await page(selector("#question-stem") + "?.textContent"), stem);
+  assert.equal(await chosen(), "low", "Reload restores the intended rating for the same question");
+  assert.equal(await page("document.querySelector('#privacy')?.open"), false, "Dismissed notice stays closed");
 
-  const seen = new Set([stem]);
-  for (let i = 0; i < 3; i++) {
-    if (i > 0) {
-      await waitFor(() => page("!!" + selector(choice) + " && !" + selector(choice) + ".closest('[hidden]')"), "next question");
-      const nextStem = await page(selector("#question-stem") + "?.textContent");
-      assert.ok(nextStem && !seen.has(nextStem), "Each question is served once per session");
-      seen.add(nextStem);
-      await click(choice);
-      await waitFor(() => isEnabled(answer), "next answer selected");
-      await click(answer);
-      await waitFor(() => contains(probabilityNotice), "next rating notice");
-    }
-    assert.ok(await page("document.querySelector('#review-options:not([hidden])')?.children.length"),
-      "The answered question is shown for review");
-    assert.equal(await page("!!document.querySelector('#rating-form input:checked')"), false, "A new rating starts empty");
-    await page("document.querySelectorAll(" + JSON.stringify(ratingChoice) + ")[" + i + "]?.click()");
-    await waitFor(() => isEnabled(rating), "quality selected");
-    if (i === 0) {
-      await call("Network.setBlockedURLs", { urls: ["*submit-rating*"] });
-      await click(rating);
-      await retryFailed("rating");
-      assert.equal(await page("document.querySelector('#rating-form input:checked')?.value"), "low",
-        "A failed rating submission preserves the chosen quality");
-      await call("Network.setBlockedURLs", { urls: [] });
-    }
-    await click(rating);
-    await waitFor(() => i === 2 ? contains("已完成") : page(`!document.querySelector("#rating-form") ||
-      !!document.querySelector("#rating-form").closest("[hidden]")`), "rating advances");
-  }
+  await call("Network.setBlockedURLs", { urls: [] });
+  await click(submit);
+  await waitFor(() => position(2), "rating retry advances to the second question");
+  assert.equal(await chosen(), null, "A new question never inherits the previous rating");
+  await click(choice);
+  await click(submit);
+  await waitFor(() => position(3), "an omitted rating advances to the third question");
+
+  // Leave the final question answered but unrated through the old API path.
+  // The reloaded UI must let an existing participant finish that saved step.
+  const uuid = /^[0-9a-f-]{36}$/;
+  assert.match(participant, uuid);
+  assert.match(fixture.round, uuid);
+  assert.equal(localDatabase(`
+    select public.submit_answer_for_participant(s.participant_id,s.id,a.id,
+      case v.question_type
+        when 'single_choice' then v.options #> '{0,id}'
+        when 'multiple_choice' then jsonb_build_array(v.options #> '{0,id}')
+        else 'true'::jsonb
+      end)->>'step'
+    from public.sessions s join public.session_questions a on a.session_id=s.id
+    join public.round_questions rq on rq.id=a.round_question_id
+    join public.question_versions v on v.id=rq.question_version_id
+    where s.participant_id='${participant}' and s.round_id='${fixture.round}' and a.position=3
+  `), "rating");
   await reloadAndWait();
-  await waitFor(() => contains("已完成"), "restored completion");
-  assert.ok((await bodyText()).includes("已完成"));
+  await waitFor(() => page("!!document.querySelector('#review-options:not([hidden]) li')"), "legacy pending rating");
+  assert.equal(await chosen(), null, "The legacy answer has no invented rating");
+  await click(rating("high"));
+  assert.ok(await contains("今后更有机会发放"), "High rating explains its effect");
+  await click(submit);
+  await waitFor(() => contains("这组题已完成"), "final rating completes the session");
+  await reloadAndWait();
+  await waitFor(() => contains("这组题已完成"), "restored completion");
+  assert.equal(await page("document.querySelector('#privacy')?.open"), false);
+  assert.equal(localDatabase(`
+    select string_agg(t.quality, ',' order by a.position)
+    from public.sessions s join public.session_questions a on a.session_id=s.id
+    join public.responses r on r.session_question_id=a.id
+    join public.ratings t on t.response_id=r.id
+    where s.participant_id='${participant}' and s.round_id='${fixture.round}'
+  `), "low,medium,high", "Manual and default ratings are stored with the expected values");
   if (navigationErrors.length) throw new Error(navigationErrors[0]);
   assert.deepEqual(networkErrors, []);
-  console.log("Chrome mobile: answer retry preserves the selection, reload restores server progress, "
-    + "the rating notice appears, rating retry preserves the quality and completion survives a reload.");
+  console.log("Chrome mobile: notice dismissal persists, the quiz opens automatically, "
+    + "answer and rating retries restore correctly, legacy pending work completes, and low/medium/high persist.");
 } finally {
   socket?.close();
   chrome?.kill();
