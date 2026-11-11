@@ -1,6 +1,6 @@
 # ExamerFrame
 
-医学题目发放与质量评价平台。打开网址即可匿名领题；答题时可选「低」「中」「高」评价，未选按「中」保存。评价用于调整之后新题单中同覆盖率候选题的抽样权重。需求、范围与验收以 [PROJECT_SPEC.md](PROJECT_SPEC.md) 为准。
+法医病理学复习与题目评价试点。学生打开网址即可匿名领题，自由跳转；提交后看到对错、标准答案和解析。学生可以主动保存「低」「中」「高」来帮助筛选正式题库；未主动评价时按「中」保存，并单独标记为默认值。需求、范围与验收以 [PROJECT_SPEC.md](PROJECT_SPEC.md) 为准。
 
 ## 本地运行
 
@@ -21,6 +21,24 @@ npm run preview -- --host 127.0.0.1
 ```
 
 `npm test` 检查 `dist/index.html` 与函数的来源策略，应在成功构建后运行。
+
+## 复习模式与首轮试点数据
+
+复习页面使用 `get-review-session`、`submit-review-answer` 和 `submit-review-rating`，旧版的顺序作答接口保留。复习模式不更换现有批次及参与者题单。答案和解析放在 `examerframe_private.question_feedback`，按既有题目版本关联；只有收到该参与者的有效作答才返回。缺少对应材料时显示「暂未提供」。
+
+按题目版本统计质量时，用 `ratings.source = 'explicit'` 筛选主动评价；`default` 是未选择时的「中」，`legacy` 是无法区分来源的旧数据。主动选「中」仍计入主动评价。试点分发继续使用质量等级计算权重。
+
+上线依次应用 `20261111000000_review_mode.sql`、核对并私下回填首轮 50 道题的已审核答案与解析、部署三个复习 Edge Functions，最后在 CI 通过后发布 Pages。先在隔离环境用 `--dry-run` 生成回滚版 SQL 检查，再由获授权的数据库管理员执行正式回填。脚本仅写入匹配题号、确切版本、题干和有序选项的题目；批次有差异或已有解析冲突时整体拒绝写入。生成文件含题库数据，必须留在 Git 忽略的 `exports/` 内，禁止提交或上传至 Pages。备份恢复演练应包含私有解析表。
+
+```powershell
+python scripts/prepare_review_backfill.py `
+  question-data/forensic-pathology-outline-50-v1.json `
+  'results/法医病理学选择题_大纲版_50题_答案解析.md' `
+  --round-slug forensic-pathology-outline-50-test-01 `
+  --output-sql exports/forensic-pathology-review-backfill.sql
+```
+
+以下各阶段的日期记录描述当时的旧版行为，复习模式以本节及项目规范为准。
 
 ## 实施计划
 
@@ -231,7 +249,7 @@ node --env-file=.env.local --test test/stage3.integration.mjs
 本地检查使用合成数据。正式试点开放前，需要管理员完成以下事项：
 
 1. **Supabase**：选择独立试点项目、区域和管理人员。在管理端启用匿名登录，将匿名注册按来源 IP 限为每小时 30 次，结合预计参与者可能共用校园或机构出口网络的情况试跑。确认数据库备份方式、恢复目标和操作权限。参见 [匿名登录](https://supabase.com/docs/guides/auth/auth-anonymous)及 [Auth 限流](https://supabase.com/docs/guides/auth/rate-limits)。
-2. **部署后端**：授权运维人员通过 Supabase CLI 对独立试点项目应用 `supabase/migrations/`，核对 RLS 和 RPC 权限，再部署 `get-active-round`、`start-or-resume-session`、`get-current-question`、`submit-answer` 和 `submit-rating` 五个 Edge Functions。函数沿用 `supabase/config.toml` 对应配置，并在内部向 Auth 核验参与者令牌。把 `EXAMERFRAME_ALLOWED_ORIGINS` 设置为真实站点 Origin（例如 `https://OWNER.github.io`，不含仓库路径），只在服务端保留 secret key。参见 [Supabase CLI 开发与发布流程](https://supabase.com/docs/guides/local-development/cli-workflows)及 [Edge Functions 认证](https://supabase.com/docs/guides/functions/auth-headers)。
+2. **部署后端**：授权运维人员通过 Supabase CLI 对独立试点项目应用 `supabase/migrations/`，核对 RLS 和 RPC 权限，再部署 `supabase/functions/` 下的参与者接口。复习模式的私有解析按上节流程回填。函数沿用 `supabase/config.toml` 对应配置，并在内部向 Auth 核验参与者令牌。把 `EXAMERFRAME_ALLOWED_ORIGINS` 设置为真实站点 Origin（例如 `https://OWNER.github.io`，不含仓库路径），只在服务端保留 secret key。参见 [Supabase CLI 开发与发布流程](https://supabase.com/docs/guides/local-development/cli-workflows)及 [Edge Functions 认证](https://supabase.com/docs/guides/functions/auth-headers)。
 3. **GitHub**：创建独立仓库并选定可见性。确认 Git 不包含 `source/`、`results/`、题库导出或本地环境变量，再推送代码。按 [GitHub Pages 发布源说明](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages)在 Settings → Pages 选择 GitHub Actions。配置以下 Actions 仓库变量，CI 通过后手动运行 `Deploy GitHub Pages`：
    - `PUBLIC_SUPABASE_URL`：试点 Supabase 的 HTTPS 项目 URL。
    - `PUBLIC_SUPABASE_PUBLISHABLE_KEY`：同一项目的 publishable key。

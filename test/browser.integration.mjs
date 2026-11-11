@@ -10,7 +10,7 @@ import { localApiConfig, localDatabase } from "./support/local-supabase.mjs";
 // The site is served by `npm run preview`; the Edge Functions accept only the
 // loopback origins from config.toml, so the page must stay on 127.0.0.1.
 const site = new URL("http://127.0.0.1:4321/");
-const probabilityNotice = "你的评价可能影响这道题今后被发放的概率。";
+const purposeNotice = "我们汇总评价，筛选适合后续正式题库的题目。";
 const candidateChromePaths = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
@@ -60,7 +60,7 @@ if (!chromePath) {
 }
 
 const localOrigins = new Set([site.origin, localApiConfig().api.origin]);
-const fixture = await pilotFixture();
+const fixture = await pilotFixture({ feedback: true });
 async function waitFor(callback, label) {
   for (let i = 0; i < 75; i += 1) {
     const result = await callback();
@@ -171,88 +171,102 @@ try {
   await call("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, mobile: true, deviceScaleFactor: 1 });
   await call("Page.navigate", { url: site.href });
   await waitFor(() => page("document.querySelector('#privacy')?.open"), "first-visit privacy notice");
-  assert.ok(await contains(probabilityNotice));
-  participant = await waitFor(() => page(`Object.keys(localStorage).filter(k=>k.startsWith("examerframe-auth-"))
-    .map(k=>JSON.parse(localStorage.getItem(k))?.user?.id).find(Boolean)`), "automatic anonymous identity");
+  assert.ok(await contains(purposeNotice));
+  participant = await waitFor(() => page('Object.keys(localStorage).filter(k=>k.startsWith("examerframe-auth-"))'
+    + '.map(k=>JSON.parse(localStorage.getItem(k))?.user?.id).find(Boolean)'), "automatic anonymous identity");
   await waitFor(questionVisible, "automatic first question without clicking Start");
   assert.equal(await page("document.querySelector('#enter-lobby')?.hidden"), true);
   await click("#dismiss-privacy");
   await waitFor(() => page("!document.querySelector('#privacy')?.open"), "dismissed notice");
   assert.equal(await page("document.documentElement.scrollWidth === document.documentElement.clientWidth"), true,
     "The mobile layout must not scroll sideways");
-  assert.equal(await page("document.querySelectorAll('.question-map li').length"), 3);
-  const stem = await page(selector("#question-stem") + "?.textContent");
-  assert.ok(stem, "The first question stem is shown");
+  assert.deepEqual(await page("[...document.querySelectorAll('[data-practice-type]')].map(button=>button.textContent)"),
+    ["选择题", "填空题", "判断题", "名词解释", "更新中"]);
+  await click('[data-practice-type="fill"]');
+  assert.ok(await contains("填空题正在准备"));
+  assert.ok(await position(1), "Future type options do not change the assigned session");
+  assert.equal(await page("document.querySelectorAll('.question-map button').length"), 3);
+  assert.equal(await page("document.querySelector('#answer-review').hidden"), true);
+  assert.equal(await page("document.querySelector('#rating-options').hidden"), true);
 
+  const go = number => click("#question-map button[data-position='" + number + "']");
+  const result = () => page("document.querySelector('#answer-review:not([hidden])')?.dataset.result");
+  const selectedAnswer = () => page("[...document.querySelectorAll('#answer-options input:checked')].map(x=>x.value)");
+  const pick = value => click(choice + "[value='" + value + "']");
+  async function selectAnswer(correct) {
+    const type = await page("document.querySelector('#question-type').textContent");
+    if (type === "判断题") await pick(correct ? "true" : "false");
+    else if (type === "多选题" && correct) { await pick("A"); await pick("C"); }
+    else await pick(correct ? "A" : "B");
+  }
+
+  await selectAnswer(false);
+  const firstDraft = await selectedAnswer();
+  await go(3);
+  assert.ok(await position(3), "An unanswered first question does not block navigation");
+  assert.equal(await result(), undefined, "Skipping to an unanswered question does not reveal its solution");
+  await selectAnswer(true);
+  const thirdDraft = await selectedAnswer();
   await call("Network.enable");
-  await call("Network.setBlockedURLs", { urls: ["*submit-answer*"] });
-  await click(choice);
-  await click(rating("low"));
-  assert.ok(await contains("今后可能更少发放"), "Low rating explains its effect");
+  await call("Network.setBlockedURLs", { urls: ["*submit-review-answer*"] });
   await click(submit);
   await retryFailed("answer");
-  assert.ok(await page("Array.from(document.querySelectorAll(" + JSON.stringify(choice) + ")).some(x=>x.checked)"),
-    "A failed answer submission preserves the answer");
-  assert.equal(await chosen(), "low", "A failed answer submission preserves the rating");
-
-  await call("Network.setBlockedURLs", { urls: ["*submit-rating*"] });
-  await click(submit);
-  await retryFailed("rating");
-  assert.ok(await page("document.querySelector('#review-options:not([hidden])')?.children.length"),
-    "The saved answer is read-only while its rating is pending");
-  assert.equal(await chosen(), "low");
-  await reloadAndWait();
-  await waitFor(() => page("!!document.querySelector('#review-options:not([hidden]) li')"), "restored pending rating");
-  assert.equal(await page(selector("#question-stem") + "?.textContent"), stem);
-  assert.equal(await chosen(), "low", "Reload restores the intended rating for the same question");
-  assert.equal(await page("document.querySelector('#privacy')?.open"), false, "Dismissed notice stays closed");
-
+  assert.deepEqual(await selectedAnswer(), thirdDraft);
+  assert.equal(await result(), undefined, "Failed submission does not reveal the solution");
   await call("Network.setBlockedURLs", { urls: [] });
   await click(submit);
-  await waitFor(() => position(2), "rating retry advances to the second question");
-  assert.equal(await chosen(), null, "A new question never inherits the previous rating");
-  await click(choice);
-  await click(submit);
-  await waitFor(() => position(3), "an omitted rating advances to the third question");
+  await waitFor(async () => (await result()) === "correct", "animated correct result");
+  assert.ok(await page("document.querySelector('#answer-review').classList.contains('play-feedback')"));
+  assert.ok(await contains("本地合成题解析。"));
+  assert.ok(await contains("您的评价将会改善后续的题目质量"));
+  assert.ok(await position(3), "Submission stays on the same question to show feedback");
+  assert.equal(await chosen(), null, "Default medium does not impersonate an active choice");
 
-  // Leave the final question answered but unrated through the old API path.
-  // The reloaded UI must let an existing participant finish that saved step.
+  await click(rating("high"));
+  assert.ok(await contains("今后更有机会发放"));
+  await call("Network.setBlockedURLs", { urls: ["*submit-review-rating*"] });
+  await click("#save-rating");
+  await waitFor(async () => (await isEnabled("#save-rating")) && (await contains("评价尚未确认")), "rating retry");
+  assert.equal(await chosen(), "high");
+  await call("Network.setBlockedURLs", { urls: [] });
+  await click("#save-rating");
+  await waitFor(() => contains("已记录：「高」"), "explicit rating recorded");
+
+  await go(1);
+  assert.deepEqual(await selectedAnswer(), firstDraft, "Jumping preserves the first unsent answer");
+  assert.equal(await page("document.querySelector('[data-position=\"3\"]').closest('li').dataset.state"), "done");
+  assert.equal(await page("document.querySelector('[data-position=\"2\"]').closest('li').dataset.state"), "upcoming");
+  await click(submit);
+  await waitFor(async () => (await result()) === "incorrect", "animated incorrect result");
+  assert.ok(await page("document.querySelector('#answer-review').classList.contains('play-feedback')"));
+  assert.ok(await contains("这题答错了"));
+  await go(2);
+  assert.equal(await result(), undefined);
+  await selectAnswer(true);
+  await click(submit);
+  await waitFor(() => contains("全部作答完成"), "completion without an explicit rating on every question");
+
+  await go(3);
+  assert.equal(await result(), "correct");
+  assert.ok(!(await page("document.querySelector('#answer-review').classList.contains('play-feedback')")),
+    "A revisit does not replay the submission animation");
+  await reloadAndWait();
+  await waitFor(async () => (await position(3)) && (await result()) === "correct", "restored review after reload");
+  assert.ok(await contains("已记录：「高」"));
+  assert.equal(await page("document.querySelector('#privacy')?.open"), false, "Dismissed notice stays closed");
+
   const uuid = /^[0-9a-f-]{36}$/;
   assert.match(participant, uuid);
   assert.match(fixture.round, uuid);
-  assert.equal(localDatabase(`
-    select public.submit_answer_for_participant(s.participant_id,s.id,a.id,
-      case v.question_type
-        when 'single_choice' then v.options #> '{0,id}'
-        when 'multiple_choice' then jsonb_build_array(v.options #> '{0,id}')
-        else 'true'::jsonb
-      end)->>'step'
-    from public.sessions s join public.session_questions a on a.session_id=s.id
-    join public.round_questions rq on rq.id=a.round_question_id
-    join public.question_versions v on v.id=rq.question_version_id
-    where s.participant_id='${participant}' and s.round_id='${fixture.round}' and a.position=3
-  `), "rating");
-  await reloadAndWait();
-  await waitFor(() => page("!!document.querySelector('#review-options:not([hidden]) li')"), "legacy pending rating");
-  assert.equal(await chosen(), null, "The legacy answer has no invented rating");
-  await click(rating("high"));
-  assert.ok(await contains("今后更有机会发放"), "High rating explains its effect");
-  await click(submit);
-  await waitFor(() => contains("这组题已完成"), "final rating completes the session");
-  await reloadAndWait();
-  await waitFor(() => contains("这组题已完成"), "restored completion");
-  assert.equal(await page("document.querySelector('#privacy')?.open"), false);
-  assert.equal(localDatabase(`
-    select string_agg(t.quality, ',' order by a.position)
-    from public.sessions s join public.session_questions a on a.session_id=s.id
-    join public.responses r on r.session_question_id=a.id
-    join public.ratings t on t.response_id=r.id
-    where s.participant_id='${participant}' and s.round_id='${fixture.round}'
-  `), "low,medium,high", "Manual and default ratings are stored with the expected values");
+  assert.equal(localDatabase(
+    "select string_agg(t.quality || ':' || t.source, ',' order by a.position) "
+    + "from public.sessions s join public.session_questions a on a.session_id=s.id "
+    + "join public.responses r on r.session_question_id=a.id join public.ratings t on t.response_id=r.id "
+    + "where s.participant_id='" + participant + "' and s.round_id='" + fixture.round + "'"
+  ), "medium:default,medium:default,high:explicit", "Default and learner ratings are distinguishable");
   if (navigationErrors.length) throw new Error(navigationErrors[0]);
   assert.deepEqual(networkErrors, []);
-  console.log("Chrome mobile: notice dismissal persists, the quiz opens automatically, "
-    + "answer and rating retries restore correctly, legacy pending work completes, and low/medium/high persist.");
+  console.log("Chrome mobile: free navigation, correct and incorrect feedback, retries, restored review, and default versus explicit ratings passed.");
 } finally {
   socket?.close();
   chrome?.kill();

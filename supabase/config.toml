@@ -46,3 +46,12 @@ verify_jwt = false
 
 [functions.submit-rating]
 verify_jwt = false
+
+[functions.get-review-session]
+verify_jwt = false
+
+[functions.submit-review-answer]
+verify_jwt = false
+
+[functions.submit-review-rating]
+verify_jwt = false

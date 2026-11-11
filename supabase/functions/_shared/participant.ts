@@ -107,14 +107,15 @@ export function isUuid(value: unknown): value is string {
     /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
 }
 
-// The three write RPCs take one participant write slot per accepted attempt.
-// Read RPCs — get-active-round and get-current-question — are deliberately
-// absent, so every endpoint is limited or unlimited by the RPC name it calls
+// Write RPCs take one participant write slot per accepted attempt.
+// Reads are deliberately absent, so every endpoint is limited by the RPC name it calls
 // rather than by a caller-supplied flag that a future write could forget to set.
 const limitedWriteRpcNames = new Set<string>([
   "start_or_resume_session_for_participant",
   "submit_answer_for_participant",
   "submit_rating_for_participant",
+  "submit_review_answer_for_participant",
+  "submit_review_rating_for_participant",
 ]);
 
 // Reads a JSON body that must hold exactly one UUID field and maps it to the

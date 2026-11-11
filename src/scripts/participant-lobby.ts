@@ -1,194 +1,130 @@
 import { PUBLIC_SUPABASE_PUBLISHABLE_KEY, PUBLIC_SUPABASE_URL } from "astro:env/client";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-interface RoundPreview {
-  id: string;
-  title: string;
-  description: string;
-  questions_per_session: number;
-}
-
-interface SessionSummary {
-  id: string;
-  round_id: string;
-  status: "in_progress" | "completed";
-  assigned_count: number;
-  rated_count: number;
-}
-
-interface Lobby {
-  round: RoundPreview | null;
-  session: SessionSummary | null;
-}
-
 type Quality = "low" | "medium" | "high";
+type Answer = string | string[] | boolean;
+type QuestionType = "single_choice" | "multiple_choice" | "true_false";
+type Operation = "get-active-round" | "start-or-resume-session" | "get-review-session" |
+  "submit-review-answer" | "submit-review-rating";
 
-interface QuestionView {
+interface ResponseView {
+  id: string;
+  selected_answer: Answer;
+  rating: { quality: Quality; source: "default" | "explicit" | "legacy" } | null;
+  feedback: { correct: boolean; standard_answer: Answer; explanation: string } | null;
+}
+
+interface Question {
   assignment_id: string;
   position: number;
-  question_type: "single_choice" | "multiple_choice" | "true_false";
+  question_type: QuestionType;
   stem: string;
   options: { id: string; text: string }[];
+  response: ResponseView | null;
 }
 
-interface CurrentQuestion {
-  session: SessionSummary;
-  step: "answer" | "rating" | "completed";
-  question: QuestionView | null;
-  response_id: string | null;
+interface ReviewSession {
+  session_id: string;
+  status: "in_progress" | "completed";
+  questions: Question[];
 }
 
-type OpenQuestion = { session: SessionSummary; question: QuestionView } & (
-  | { step: "answer"; response_id: null }
-  | { step: "rating"; response_id: string }
-);
-
-type EdgeOperation = "get-active-round" | "start-or-resume-session" |
-  "get-current-question" | "submit-answer" | "submit-rating";
-
-const TYPE_LABELS: Record<QuestionView["question_type"], string> = {
-  single_choice: "单选题",
-  multiple_choice: "多选题",
-  true_false: "判断题",
+const typeLabels: Record<QuestionType, string> = {
+  single_choice: "单选题", multiple_choice: "多选题", true_false: "判断题",
 };
-
-const TRUE_FALSE_OPTIONS = [
-  { id: "true", text: "正确" },
-  { id: "false", text: "错误" },
-];
-
-const QUALITY_HINTS: Record<Quality, string> = {
+const judgmentOptions = [{ id: "true", text: "正确" }, { id: "false", text: "错误" }];
+const qualityLabels = { low: "低", medium: "中", high: "高" };
+const qualityHints = {
   low: "谢谢你的反馈！这道题今后可能更少发放。",
-  medium: "这道题将以「中」计入评价。",
+  medium: "保存后会记录为你主动给出的「中」。",
   high: "谢谢你的反馈！这道题今后更有机会发放。",
 };
 
-const ERROR_MESSAGES: Record<string, string> = {
-  ROUND_NOT_OPEN: "当前没有可参与的批次，请稍后再试。",
-  QUESTION_POOL_TOO_SMALL: "当前批次的题目不足，请稍后再试。",
-  SESSION_NOT_FOUND: "没有找到你的答题会话，请重试。",
-};
+function element<T extends HTMLElement>(id: string) {
+  return document.getElementById(id) as T;
+}
 
-const privacy = document.querySelector<HTMLDialogElement>("#privacy")!;
-const statusCard = document.querySelector<HTMLElement>("#status-card")!;
-const lobbyStatus = document.querySelector<HTMLElement>("#lobby-status")!;
-const retry = document.querySelector<HTMLButtonElement>("#enter-lobby")!;
-const roundSection = document.querySelector<HTMLElement>("#active-round")!;
-const roundTitle = document.querySelector<HTMLElement>("#round-title")!;
-const roundDescription = document.querySelector<HTMLElement>("#round-description")!;
-const roundSize = document.querySelector<HTMLElement>("#round-size")!;
-const sessionSection = document.querySelector<HTMLElement>("#saved-session")!;
-const sessionProgress = document.querySelector<HTMLElement>("#session-progress")!;
-const questionMap = document.querySelector<HTMLOListElement>("#question-map")!;
-const questionSection = document.querySelector<HTMLElement>("#current-question")!;
-const questionProgress = document.querySelector<HTMLElement>("#question-progress")!;
-const questionType = document.querySelector<HTMLElement>("#question-type")!;
-const questionStem = document.querySelector<HTMLElement>("#question-stem")!;
-const form = document.querySelector<HTMLFormElement>("#answer-form")!;
-const answerOptions = document.querySelector<HTMLFieldSetElement>("#answer-options")!;
-const questionOptions = document.querySelector<HTMLOListElement>("#question-options")!;
-const reviewOptions = document.querySelector<HTMLOListElement>("#review-options")!;
-const ratingOptions = document.querySelector<HTMLFieldSetElement>("#rating-options")!;
-const qualityFeedback = document.querySelector<HTMLElement>("#quality-feedback")!;
-const questionStatus = document.querySelector<HTMLElement>("#question-status")!;
-const submitButton = document.querySelector<HTMLButtonElement>("#submit-answer")!;
-
-let current: OpenQuestion | null = null;
-let busy = false;
+const privacy = element<HTMLDialogElement>("privacy");
+const statusCard = element("status-card");
+const lobbyStatus = element("lobby-status");
+const retry = element<HTMLButtonElement>("enter-lobby");
+const typeStatus = element("type-status");
+const sessionSection = element("saved-session");
+const sessionProgress = element("session-progress");
+const questionMap = element("question-map");
+const questionSection = element("current-question");
+const questionProgress = element("question-progress");
+const questionType = element("question-type");
+const questionStem = element("question-stem");
+const form = element<HTMLFormElement>("answer-form");
+const answerOptions = element<HTMLFieldSetElement>("answer-options");
+const questionOptions = element("question-options");
+const reviewOptions = element("review-options");
+const review = element("answer-review");
+const verdict = element("answer-verdict");
+const standardAnswer = element("standard-answer");
+const explanation = element("answer-explanation");
+const savedAnswer = element("saved-answer");
+const ratingOptions = element<HTMLFieldSetElement>("rating-options");
+const qualityFeedback = element("quality-feedback");
+const questionStatus = element("question-status");
+const submitButton = element<HTMLButtonElement>("submit-answer");
+const saveRating = element<HTMLButtonElement>("save-rating");
 
 function showNotice() {
   const key = "examerframe-notice-dismissed-v1";
   try {
     if (localStorage.getItem(key) === "1") return;
-  } catch {
-    // The notice still works when the browser blocks persistent storage.
-  }
+  } catch { /* Browser blocked persistent storage. */ }
   privacy.addEventListener("close", () => {
     try { localStorage.setItem(key, "1"); } catch { /* Dismissed for this visit. */ }
   }, { once: true });
   privacy.showModal();
 }
 
-function showLobbyStatus(message: string, retryLabel?: string) {
+function showStatus(message: string, retryLabel?: string) {
   lobbyStatus.textContent = message;
   retry.hidden = !retryLabel;
   if (retryLabel) retry.textContent = retryLabel;
   statusCard.hidden = !message && !retryLabel;
 }
 
-function setBusy(value: boolean) {
-  busy = value;
-  retry.disabled = value;
-  submitButton.disabled = value || !current;
-  answerOptions.disabled = value || current?.step !== "answer";
-  ratingOptions.disabled = value || !current;
-  questionSection.setAttribute("aria-busy", String(value));
-}
-
-function renderRound(round: RoundPreview | null) {
-  roundSection.hidden = !round;
-  if (!round) return;
-  roundTitle.textContent = round.title;
-  roundDescription.textContent = round.description;
-  roundDescription.hidden = !round.description;
-  roundSize.textContent = `每次发放 ${round.questions_per_session} 道题`;
-}
-
-function renderSession(session: SessionSummary | null, currentPosition?: number) {
-  sessionSection.hidden = !session;
-  if (!session) return;
-
-  sessionProgress.textContent = `已完成 ${session.rated_count} / ${session.assigned_count} 题`;
-  const items = Array.from({ length: session.assigned_count }, (_, index) => {
-    const number = index + 1;
-    const item = document.createElement("li");
-    const state = number <= session.rated_count ? "done" : number === currentPosition ? "current" : "upcoming";
-    item.dataset.state = state;
-    item.textContent = String(number).padStart(2, "0");
-    item.setAttribute("aria-label", `第 ${number} 题：${state === "done" ? "已完成" : state === "current" ? "当前题目" : "未完成"}`);
-    if (state === "current") item.setAttribute("aria-current", "step");
-    return item;
+for (const button of document.querySelectorAll<HTMLButtonElement>("[data-practice-type]")) {
+  button.addEventListener("click", () => {
+    const label = button.textContent?.trim() ?? "";
+    typeStatus.textContent = button.dataset.practiceType === "choice"
+      ? "当前提供选择题。可点题号自由复习。"
+      : button.dataset.practiceType === "updates"
+        ? "更多题型正在准备，欢迎先试试选择题。"
+        : label + "正在准备，开放后可在这里切换。";
   });
-  questionMap.replaceChildren(...items);
 }
 
-function hideQuestion() {
-  current = null;
-  questionSection.hidden = true;
-  questionOptions.replaceChildren();
-  reviewOptions.replaceChildren();
-  questionStatus.textContent = "";
-  setBusy(busy);
+function formatAnswer(question: Question, answer: Answer) {
+  if (typeof answer === "boolean") return answer ? "正确" : "错误";
+  return (Array.isArray(answer) ? answer : [answer]).map((id) => {
+    const option = question.options.find((item) => item.id === id);
+    return option ? id + "．" + option.text : id;
+  }).join("；");
 }
 
-function isQuality(value: unknown): value is Quality {
-  return value === "low" || value === "medium" || value === "high";
-}
-
-function selectedQuality(): Quality | null {
-  const value = ratingOptions.querySelector<HTMLInputElement>('input[name="quality"]:checked')?.value;
-  return isQuality(value) ? value : null;
-}
-
-function renderQualityFeedback() {
-  const quality = selectedQuality();
-  qualityFeedback.textContent = quality ? QUALITY_HINTS[quality] : "不选时按「中」记录。";
-}
-
-function renderChoices(question: QuestionView, readOnly: boolean) {
-  const type = question.question_type;
-  const options = type === "true_false" ? TRUE_FALSE_OPTIONS : question.options;
+function renderChoices(question: Question, draft: Answer | undefined) {
+  const judgment = question.question_type === "true_false";
+  const options = judgment ? judgmentOptions : question.options;
+  const value = question.response?.selected_answer ?? draft;
+  const selected = new Set(Array.isArray(value) ? value : value === undefined ? [] : [String(value)]);
   const items = options.map((option) => {
-    const row = document.createElement(readOnly ? "div" : "label");
+    const row = document.createElement(question.response ? "div" : "label");
     row.className = "choice-row";
-    if (!readOnly) {
+    if (!question.response) {
       const input = document.createElement("input");
-      input.type = type === "multiple_choice" ? "checkbox" : "radio";
+      input.type = question.question_type === "multiple_choice" ? "checkbox" : "radio";
       input.name = "answer";
       input.value = option.id;
+      input.checked = selected.has(option.id);
       row.append(input);
     }
-    if (type !== "true_false") {
+    if (!judgment) {
       const code = document.createElement("span");
       code.className = "option-code";
       code.textContent = option.id;
@@ -202,62 +138,47 @@ function renderChoices(question: QuestionView, readOnly: boolean) {
     item.append(row);
     return item;
   });
-  questionOptions.replaceChildren(...(readOnly ? [] : items));
-  reviewOptions.replaceChildren(...(readOnly ? items : []));
-  answerOptions.hidden = readOnly;
-  reviewOptions.hidden = !readOnly;
+  questionOptions.replaceChildren(...(question.response ? [] : items));
+  reviewOptions.replaceChildren(...(question.response ? items : []));
+  answerOptions.hidden = Boolean(question.response);
+  reviewOptions.hidden = !question.response;
   answerOptions.removeAttribute("aria-invalid");
-  const legend = answerOptions.querySelector("legend")!;
-  legend.textContent = type === "multiple_choice" ? "选择一项或多项答案" : "选择一项答案";
+  answerOptions.querySelector("legend")!.textContent =
+    question.question_type === "multiple_choice" ? "选择一项或多项答案" : "选择一项答案";
 }
 
-function selectedAnswer(type: QuestionView["question_type"]) {
+function chosenAnswer(type: QuestionType): Answer | undefined {
   const ids = [...answerOptions.querySelectorAll<HTMLInputElement>('input[name="answer"]:checked')]
     .map((input) => input.value);
-  if (!ids.length) return null;
+  if (!ids.length) return undefined;
   if (type === "multiple_choice") return ids;
-  if (type === "true_false") return ids[0] === "true";
-  return ids[0];
+  return type === "true_false" ? ids[0] === "true" : ids[0];
 }
 
-class LobbyRequestError extends Error {}
-
-interface RatingIntent {
-  assignmentId: string;
-  quality: Quality | null;
+function chosenQuality(): Quality | undefined {
+  const value = ratingOptions.querySelector<HTMLInputElement>('input[name="quality"]:checked')?.value;
+  return value === "low" || value === "medium" || value === "high" ? value : undefined;
 }
 
-// Keep the selected rating through a reload between the two existing writes.
-// Limit it to this tab, this project and this session; never store the answer here.
-function ratingIntentStore(project: string) {
-  const key = (sessionId: string) => `examerframe-rating-intent:${project}:${sessionId}`;
-  const memory = new Map<string, RatingIntent>();
-  return {
-    read(sessionId: string): RatingIntent | null {
-      const remembered = memory.get(sessionId);
-      if (remembered) return remembered;
-      try {
-        const raw = sessionStorage.getItem(key(sessionId));
-        if (!raw) return null;
-        const value: unknown = JSON.parse(raw);
-        if (value && typeof value === "object" && "assignmentId" in value &&
-          typeof value.assignmentId === "string" && "quality" in value &&
-          (value.quality === null || isQuality(value.quality))) {
-          return { assignmentId: value.assignmentId, quality: value.quality };
-        }
-      } catch { /* Storage is only used to restore an unfinished rating. */ }
-      return null;
-    },
-    save(sessionId: string, intent: RatingIntent) {
-      memory.set(sessionId, intent);
-      try { sessionStorage.setItem(key(sessionId), JSON.stringify(intent)); } catch { /* Keep it in memory. */ }
-    },
-    clear(sessionId: string) {
-      memory.delete(sessionId);
-      try { sessionStorage.removeItem(key(sessionId)); } catch { /* Nothing else to clear. */ }
-    },
-  };
+function ratingIsSaved(response: ResponseView) {
+  return !!response.rating && response.rating.source !== "default";
 }
+
+function renderReview(question: Question, animate: boolean) {
+  const response = question.response;
+  const feedback = response?.feedback;
+  review.hidden = !response;
+  review.classList.remove("play-feedback");
+  review.dataset.result = feedback ? (feedback.correct ? "correct" : "incorrect") : "unavailable";
+  verdict.textContent = !response ? "" : !feedback ? "答案已保存，解析暂未提供"
+    : feedback.correct ? "✓ 答对啦！" : "这题答错了，看看解析吧。";
+  standardAnswer.textContent = feedback ? formatAnswer(question, feedback.standard_answer) : "暂未提供";
+  explanation.textContent = feedback?.explanation ?? "这道题的解析暂未提供。";
+  savedAnswer.textContent = response ? formatAnswer(question, response.selected_answer) : "";
+  if (animate && feedback) review.classList.add("play-feedback");
+}
+
+class RequestError extends Error {}
 
 async function getAnonymousSession(client: SupabaseClient, maySignIn: boolean) {
   async function restoreOrSignIn() {
@@ -270,7 +191,6 @@ async function getAnonymousSession(client: SupabaseClient, maySignIn: boolean) {
     return created.data.session;
   }
 
-  // Serialize initial visits in two tabs so they can reuse one identity.
   return maySignIn && navigator.locks
     ? navigator.locks.request("examerframe-anonymous-sign-in", restoreOrSignIn)
     : restoreOrSignIn();
@@ -278,217 +198,234 @@ async function getAnonymousSession(client: SupabaseClient, maySignIn: boolean) {
 
 function connect(url: string, publishableKey: string) {
   const host = new URL(url).host;
-  const intents = ratingIntentStore(host);
   const client = createClient(url, publishableKey, {
-    auth: { detectSessionInUrl: false, storageKey: `examerframe-auth-${host}` },
+    auth: { detectSessionInUrl: false, storageKey: "examerframe-auth-" + host },
   });
+  const answerDrafts = new Map<string, Answer>();
+  const ratingDrafts = new Map<string, Quality>();
+  let session: ReviewSession | undefined;
+  let position: number | undefined;
+  let busy = false;
 
-  async function read<T>(name: EdgeOperation, token: string, body?: Record<string, unknown>): Promise<T> {
-    const headers = new Headers({ apikey: publishableKey, Authorization: `Bearer ${token}` });
+  const current = () => session?.questions.find((question) => question.position === position);
+
+  async function request<T>(name: Operation, token: string, body?: object): Promise<T> {
+    const headers = new Headers({ apikey: publishableKey, Authorization: "Bearer " + token });
     if (body) headers.set("Content-Type", "application/json");
-    const response = await fetch(`${url.replace(/\/$/, "")}/functions/v1/${name}`, {
-      method: body ? "POST" : "GET",
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-      credentials: "omit",
-      cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
+    const response = await fetch(url.replace(/\/$/, "") + "/functions/v1/" + name, {
+      method: body ? "POST" : "GET", headers, body: body ? JSON.stringify(body) : undefined,
+      credentials: "omit", cache: "no-store", signal: AbortSignal.timeout(15000),
     });
-
     if (!response.ok) {
-      const error: unknown = await response.json().catch(() => null);
-      const payload = (error && typeof error === "object" ? error : {}) as { code?: unknown; message?: unknown };
-      const known = typeof payload.code === "string" ? ERROR_MESSAGES[payload.code] : undefined;
-      throw new LobbyRequestError(known ?? (typeof payload.message === "string" && payload.message
-        ? payload.message
-        : "暂时无法读取会话，请重试。"));
+      const payload = await response.json().catch(() => null);
+      throw new RequestError(typeof payload?.message === "string" ? payload.message : "暂时无法连接，请重试。");
     }
     return response.json();
   }
 
-  function renderQuestion({ session, step, question, response_id }: CurrentQuestion) {
-    const intent = intents.read(session.id);
-    if (intent && (step === "completed" || intent.assignmentId !== question?.assignment_id)) {
-      intents.clear(session.id);
-    }
-    renderSession(session, question?.position);
-
-    if (step === "completed" || session.status === "completed") {
-      hideQuestion();
-      showLobbyStatus("这组题已完成。谢谢你的作答和反馈！");
-      return;
-    }
-
-    if (!question || !Object.hasOwn(TYPE_LABELS, question.question_type) || (step === "rating" && !response_id)) {
-      hideQuestion();
-      showLobbyStatus("暂时无法加载当前题目，请重试。", "重试");
-      return;
-    }
-
-    current = step === "rating"
-      ? { session, question, step, response_id: response_id! }
-      : { session, question, step: "answer", response_id: null };
-    questionProgress.textContent = `第 ${question.position} 题`;
-    questionType.textContent = TYPE_LABELS[question.question_type];
-    questionStem.textContent = question.stem;
-    renderChoices(question, step === "rating");
-
-    const remembered = intent?.assignmentId === question.assignment_id ? intent.quality : null;
-    for (const input of ratingOptions.querySelectorAll<HTMLInputElement>('input[name="quality"]')) {
-      input.checked = input.value === remembered;
-    }
-    renderQualityFeedback();
-    submitButton.textContent = step === "rating" ? "继续下一题" : "提交并继续";
-    questionStatus.textContent = step === "rating" ? "答案已保存，可继续。评价不选时按「中」记录。" : "";
-    questionSection.hidden = false;
-    showLobbyStatus("");
-    setBusy(busy);
+  function renderRatingHint() {
+    const response = current()?.response;
+    if (!response) return;
+    const quality = chosenQuality();
+    qualityFeedback.textContent = response.rating && ratingIsSaved(response)
+      ? "已记录：「" + qualityLabels[response.rating.quality] + "」。"
+      : quality ? qualityHints[quality]
+      : response.rating ? "不主动选择时，本题按「中」记录。" : "这道题此前未保存评价。现在也可以补评。";
+    saveRating.disabled = busy || !quality || ratingIsSaved(response);
   }
 
-  function fetchQuestion(sessionId: string, token: string) {
-    return read<CurrentQuestion>("get-current-question", token, { session_id: sessionId });
+  function setBusy(value: boolean) {
+    busy = value;
+    const question = current();
+    retry.disabled = value;
+    submitButton.disabled = value || !question || !!question.response;
+    answerOptions.disabled = value || !question || !!question.response;
+    ratingOptions.disabled = value || !question?.response || ratingIsSaved(question.response);
+    questionMap.querySelectorAll("button").forEach((button) => { button.disabled = value; });
+    questionSection.setAttribute("aria-busy", String(value));
+    renderRatingHint();
+  }
+
+  function render({ animate = false, focus = false } = {}) {
+    const question = current();
+    const questions = session?.questions ?? [];
+    sessionSection.hidden = questions.length === 0;
+    questionSection.hidden = !question;
+    questionStatus.textContent = "";
+    const answered = questions.filter((item) => item.response).length;
+    sessionProgress.textContent = answered === questions.length
+      ? "全部作答完成 · 可回看解析"
+      : "已作答 " + answered + " / " + questions.length + " 题 · 点击题号跳转";
+    questionMap.replaceChildren(...questions.map((item) => {
+      const li = document.createElement("li");
+      const button = document.createElement("button");
+      li.dataset.state = item.position === position ? "current" : item.response ? "done" : "upcoming";
+      button.type = "button";
+      button.dataset.position = String(item.position);
+      button.textContent = String(item.position).padStart(2, "0");
+      button.setAttribute("aria-label", "第 " + item.position + " 题，" + (item.response ? "已作答" : "未作答"));
+      if (item.position === position) button.setAttribute("aria-current", "step");
+      li.append(button);
+      return li;
+    }));
+    if (question) {
+      questionProgress.textContent = "第 " + question.position + " 题";
+      questionType.textContent = typeLabels[question.question_type];
+      questionStem.textContent = question.stem;
+      renderChoices(question, answerDrafts.get(question.assignment_id));
+      renderReview(question, animate);
+      submitButton.hidden = !!question.response;
+      ratingOptions.hidden = !question.response;
+      const rating = question.response?.rating;
+      const selected = rating && rating.source !== "default" ? rating.quality : ratingDrafts.get(question.assignment_id);
+      for (const input of ratingOptions.querySelectorAll<HTMLInputElement>('input[name="quality"]')) {
+        input.checked = input.value === selected;
+      }
+    }
+    setBusy(busy);
+    if (question && focus && !privacy.open) (animate && question.response ? verdict : questionProgress).focus();
+  }
+
+  function readSession(sessionId: string, token: string) {
+    return request<ReviewSession>("get-review-session", token, { session_id: sessionId });
+  }
+
+  function positionKey(sessionId: string) {
+    return "examerframe-review-position:" + host + ":" + sessionId;
   }
 
   async function refresh() {
     if (busy) return;
     setBusy(true);
-    showLobbyStatus("正在准备答题界面…");
-
+    showStatus("正在准备复习题单…");
     try {
       const identity = await getAnonymousSession(client, true);
-      if (!identity) throw new LobbyRequestError("暂时无法建立匿名会话，请重试。");
+      if (!identity) throw new RequestError("暂时无法建立匿名会话。");
       const token = identity.access_token;
-      const lobby = await read<Lobby>("get-active-round", token);
-      renderRound(lobby.session && lobby.session.round_id !== lobby.round?.id ? null : lobby.round);
-
-      // Restore a saved session first, including one from a closed batch.
-      if (lobby.session) {
-        renderQuestion(await fetchQuestion(lobby.session.id, token));
+      const lobby = await request<{ round: { id: string } | null; session: { id: string } | null }>("get-active-round", token);
+      let id = lobby.session?.id;
+      if (!id && lobby.round) {
+        const started = await request<{ session: { id: string } | null }>(
+          "start-or-resume-session", token, { round_id: lobby.round.id },
+        );
+        id = started.session?.id;
+      }
+      if (!id) {
+        showStatus("当前没有开放的题单，请稍后再查看。", "刷新状态");
         return;
       }
-
-      if (!lobby.round) {
-        hideQuestion();
-        renderSession(null);
-        showLobbyStatus("当前没有开放的批次，请稍后再查看。", "刷新状态");
-        return;
-      }
-
-      const started = await read<{ session: SessionSummary | null }>(
-        "start-or-resume-session", token, { round_id: lobby.round.id },
-      );
-      if (!started.session) throw new LobbyRequestError("暂时无法创建答题会话，请重试。");
-      renderQuestion(await fetchQuestion(started.session.id, token));
+      session = await readSession(id, token);
+      if (!session.questions.length) throw new RequestError("暂时无法加载题单。");
+      let previous: number | undefined;
+      try { previous = Number(sessionStorage.getItem(positionKey(id))); } catch { /* Use the first unanswered question. */ }
+      position = session.questions.find((item) => item.position === previous)?.position
+        ?? session.questions.find((item) => !item.response)?.position ?? session.questions[0].position;
+      showStatus("");
+      render();
     } catch (error) {
-      hideQuestion();
-      const disabled = error && typeof error === "object" && "code" in error &&
-        error.code === "anonymous_provider_disabled";
-      showLobbyStatus(disabled ? "当前暂未开放匿名参与，请稍后再试。"
-        : error instanceof LobbyRequestError ? error.message : "暂时无法连接，请重试。", "重试");
+      const disabled = error && typeof error === "object" && "code" in error && error.code === "anonymous_provider_disabled";
+      showStatus(disabled ? "当前暂未开放匿名参与，请稍后再试。"
+        : error instanceof RequestError ? error.message : "暂时无法连接，请重试。", "重试");
     } finally {
       setBusy(false);
     }
   }
 
-  function focusNextQuestion() {
-    if (!questionSection.hidden && !privacy.open) questionProgress.focus();
-  }
-
-  async function submit() {
-    const view = current;
-    if (busy || !view) return;
-
-    const { session, question } = view;
-    const answer = view.step === "answer" ? selectedAnswer(question.question_type) : null;
-    if (view.step === "answer" && answer === null) {
-      answerOptions.setAttribute("aria-invalid", "true");
-      questionStatus.textContent = question.question_type === "multiple_choice"
-        ? "请至少选择一项答案。" : "请先选择一项答案。";
-      answerOptions.querySelector<HTMLInputElement>("input")?.focus();
-      return;
+  async function save(kind: "answer" | "rating") {
+    const question = current();
+    if (busy || !session || !question) return;
+    const id = session.session_id;
+    const response = question.response;
+    let body: object;
+    if (kind === "answer") {
+      if (response) return;
+      const answer = chosenAnswer(question.question_type);
+      if (answer === undefined) {
+        answerOptions.setAttribute("aria-invalid", "true");
+        questionStatus.textContent = "请先选择答案；也可以直接点题号跳过。";
+        answerOptions.querySelector("input")?.focus();
+        return;
+      }
+      body = { session_id: id, assignment_id: question.assignment_id, answer };
+    } else {
+      const quality = chosenQuality();
+      if (!response || ratingIsSaved(response) || !quality) return;
+      body = { response_id: response.id, quality };
     }
 
-    const selection = selectedQuality();
-    const quality = selection ?? "medium";
-    intents.save(session.id, { assignmentId: question.assignment_id, quality: selection });
     setBusy(true);
+    questionStatus.textContent = kind === "answer" ? "正在保存答案…" : "正在保存评价…";
     let token: string | undefined;
-    let ratingSaved = false;
-
     try {
       const identity = await getAnonymousSession(client, false);
-      if (!identity) {
-        hideQuestion();
-        showLobbyStatus("会话已失效，请刷新后继续。", "刷新状态");
-        return;
-      }
+      if (!identity) throw new RequestError("会话已失效，请刷新页面后继续。");
       token = identity.access_token;
-
-      let responseId = view.response_id;
-      if (view.step === "answer") {
-        questionStatus.textContent = "正在保存答案…";
-        const result = await read<{ response_id: string }>("submit-answer", token, {
-          session_id: session.id, assignment_id: question.assignment_id, answer,
-        });
-        responseId = result.response_id;
-        renderQuestion({ session, question, step: "rating", response_id: responseId });
-      }
-
-      questionStatus.textContent = "正在保存评价…";
-      await read("submit-rating", token, { response_id: responseId, quality });
-      ratingSaved = true;
-      intents.clear(session.id);
-      renderQuestion(await fetchQuestion(session.id, token));
-      focusNextQuestion();
+      session = await request<ReviewSession>(
+        kind === "answer" ? "submit-review-answer" : "submit-review-rating", token, body,
+      );
+      if (kind === "answer") answerDrafts.delete(question.assignment_id);
+      else ratingDrafts.delete(question.assignment_id);
+      render({ animate: kind === "answer", focus: kind === "answer" });
     } catch (error) {
-      if (ratingSaved) {
-        hideQuestion();
-        showLobbyStatus("答案和评价已保存，请刷新以继续。", "刷新状态");
-        return;
-      }
-
-      // The request may have reached the server even when the response was
-      // lost. Prefer server progress; keep controls intact on the same step.
+      // The response may have been lost after committing. Reconcile on the
+      // owned session; an unchanged question keeps its unsaved choices.
       if (token) {
         try {
-          const next = await fetchQuestion(session.id, token);
-          const advanced = next.step === "completed" || next.question?.assignment_id !== question.assignment_id;
-          if (advanced || next.step !== current?.step || next.response_id !== current?.response_id) {
-            renderQuestion(next);
-          }
-          if (advanced) {
-            focusNextQuestion();
+          const latest = await readSession(id, token);
+          const restored = latest.questions.find((item) => item.assignment_id === question.assignment_id)?.response;
+          if (restored && (kind === "answer" || ratingIsSaved(restored))) {
+            session = latest;
+            answerDrafts.delete(question.assignment_id);
+            ratingDrafts.delete(question.assignment_id);
+            render({ animate: kind === "answer", focus: kind === "answer" });
+            questionStatus.textContent = "已恢复服务端保存的记录。";
             return;
           }
-        } catch { /* Keep the visible state and allow an idempotent retry. */ }
+        } catch { /* Preserve this question and allow retry. */ }
       }
-
-      const hint = error instanceof LobbyRequestError ? error.message : "";
-      questionStatus.textContent = current?.step === "rating"
-        ? `答案已保存，评价尚未确认，请重试。${hint}`
-        : `答案尚未确认，请重试。${hint}`;
+      questionStatus.textContent = (kind === "answer" ? "答案" : "评价") + "尚未确认，请重试。"
+        + (error instanceof RequestError ? error.message : "");
     } finally {
       setBusy(false);
     }
   }
 
-  retry.addEventListener("click", () => void refresh());
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void submit();
+  questionMap.addEventListener("click", (event) => {
+    if (busy || !session || !(event.target instanceof Element)) return;
+    const button = event.target.closest<HTMLButtonElement>("button[data-position]");
+    const next = Number(button?.dataset.position);
+    if (!session.questions.some((item) => item.position === next)) return;
+    position = next;
+    try { sessionStorage.setItem(positionKey(session.session_id), String(next)); } catch { /* Still navigate. */ }
+    render({ focus: true });
   });
+
+  answerOptions.addEventListener("change", () => {
+    const question = current();
+    if (question) {
+      const draft = chosenAnswer(question.question_type);
+      if (draft === undefined) answerDrafts.delete(question.assignment_id);
+      else answerDrafts.set(question.assignment_id, draft);
+    }
+    answerOptions.removeAttribute("aria-invalid");
+    questionStatus.textContent = "";
+  });
+
+  ratingOptions.addEventListener("change", () => {
+    const question = current();
+    const quality = chosenQuality();
+    if (question && quality) ratingDrafts.set(question.assignment_id, quality);
+    renderRatingHint();
+  });
+  form.addEventListener("submit", (event) => { event.preventDefault(); void save("answer"); });
+  saveRating.addEventListener("click", () => void save("rating"));
+  retry.addEventListener("click", () => void refresh());
   void refresh();
 }
-
-ratingOptions.addEventListener("change", renderQualityFeedback);
-answerOptions.addEventListener("change", () => {
-  answerOptions.removeAttribute("aria-invalid");
-  questionStatus.textContent = "";
-});
 
 showNotice();
 if (PUBLIC_SUPABASE_URL && PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
   connect(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_PUBLISHABLE_KEY);
 } else {
-  showLobbyStatus("本环境暂未连接答题服务。");
+  showStatus("本环境暂未连接答题服务。");
 }

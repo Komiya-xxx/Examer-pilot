@@ -20,7 +20,7 @@ function participantId(value, label) {
 // Loads the synthetic round used by both local integration cases and removes
 // everything it wrote, including stage 7 limiter rows of the tagged test
 // identities and the optional browser participant.
-export async function pilotFixture() {
+export async function pilotFixture({ feedback = false } = {}) {
   assert.equal(localDatabase("select count(*) from public.evaluation_rounds where status = 'open'"), "0",
     "Use an isolated local database with no open round");
   const run = randomUUID();
@@ -34,6 +34,25 @@ export async function pilotFixture() {
     "The stage 7 participant write limiter is not installed (missing " + writeLimitsTable + ")",
   );
   const array = (values) => "array[" + values.join(", ") + "]";
+  // Review material is optional so the fixture still loads where the review-mode
+  // migration is absent; it only ever covers this run's own synthetic versions.
+  const seedFeedback = feedback ? `
+    insert into examerframe_private.question_feedback (question_version_id, standard_answer, explanation)
+      select version.id,
+             case version.question_type
+               when 'single_choice' then version.options->0->'id'
+               when 'multiple_choice' then jsonb_build_array(version.options->0->'id', version.options->-1->'id')
+               when 'true_false' then 'true'::jsonb
+             end,
+             ${literal("本地合成题解析。")}
+      from public.question_versions as version
+      join public.questions as question on question.id = version.question_id
+      where question.external_id like 'acceptance-${run}-%';` : "";
+  const cleanupFeedback = feedback ? `
+        delete from examerframe_private.question_feedback where question_version_id in
+          (select version.id from public.question_versions as version
+           join public.questions as question on question.id = version.question_id
+           where question.external_id like 'acceptance-${run}-%');` : "";
 
   localDatabase(`
     begin;
@@ -57,7 +76,7 @@ export async function pilotFixture() {
       select '${round}', version.id, version.question_id
       from public.question_versions as version
       join public.questions as question on question.id = version.question_id
-      where question.external_id like 'acceptance-${run}-%';
+      where question.external_id like 'acceptance-${run}-%';${seedFeedback}
     commit;
   `);
 
@@ -97,6 +116,7 @@ export async function pilotFixture() {
         delete from public.sessions where id in (select id from test_sessions);
         delete from public.round_questions where round_id = '${round}';
         delete from public.evaluation_rounds where id = '${round}';
+        ${cleanupFeedback}
         delete from public.question_versions where question_id in
           (select id from public.questions where external_id like 'acceptance-${run}-%');
         delete from public.questions where external_id like 'acceptance-${run}-%';
