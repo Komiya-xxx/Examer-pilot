@@ -1,6 +1,6 @@
 # 医学题目发放与质量评价平台（PROJECT_SPEC）
 
-> 版本 1.3。本文是 ExamerFrame 的需求和验收依据。
+> 版本 1.4。本文是 ExamerFrame 的需求和验收依据。
 > 首期采用 Astro 静态前端、Supabase Auth、Edge Functions 和 PostgreSQL。使用托管服务，无需自建 VPS。
 
 ## 1. 项目目标
@@ -12,10 +12,11 @@
 ## 2. 用户流程
 
 1. 用户打开网址后直接进入答题流程。浏览器复用有效的 Supabase 匿名会话，必要时自动创建匿名身份。首次访问显示可关闭的试点公告。
-2. 服务端创建或恢复该用户在当前批次中的唯一答题会话。新会话一次分配固定题单（本批次 10 道），题号只用于导航。
+2. 服务端恢复当前题单，或在用户首次参与当前批次时创建首组。每个会话一次分配固定题单（本批次 10 道），题号只用于导航。
 3. 用户可在分配的题目之间任意跳转，不要求先答前一题。服务端验证答案格式与题目归属，保存原始答案及默认「中」，随后仅向该用户返回这道题的判定、标准答案和解析。
 4. 提交后留在原题。用户可在看过解析后主动保存一次「低」「中」或「高」，替换本题的默认评价；不操作也能跳转。全部作答后仍可回看或补充主动评价。
-5. 刷新、断网重试或重新打开同一浏览器时，可恢复固定题单与已提交的答案、解析和评价。
+5. 当前批次仍开放时，本组提交任意六题后，进度区显示「换一组题」（不足六题的题单须全部作答）。用户可以继续作答或直接换题，无需主动评价。换题后跳过本组未答题，下一组避开本组发放的所有逻辑题目；更早的组可能重现。领不到完整的一组时，留在原组继续作答或回看解析。
+6. 刷新、断网重试或重新打开同一浏览器时，可恢复当前题单与已提交的答案、解析和评价。领到新组后，旧组的答案和评价仍保存在服务端。
 
 管理员通过受控操作将人工审核后的题目放入批次，并设置试点的开放时间。批次关闭后禁止创建新会话，已有会话可恢复并答完原题单。
 
@@ -48,12 +49,13 @@
 | `question_versions` | `id`、`question_id`、正整数 `version_no`、`question_type`、`stem`、`options`、`review_status`、`created_at`。唯一 `(question_id, version_no)` |
 | `evaluation_rounds` | `id`、唯一 `slug`、`title`、`description`、`status`（`draft`、`open`、`closed`）、正整数 `questions_per_session`、可空 `starts_at`、`ends_at`、`created_at` |
 | `round_questions` | `id`、`round_id`、`question_version_id`、`is_active`、`created_at`。唯一 `(round_id, question_version_id)` |
-| `sessions` | `id`、`round_id`、`participant_id`、`status`（`in_progress`、`completed`）、`started_at`、可空 `completed_at`。唯一 `(round_id, participant_id)` |
+| `sessions` | `id`、`round_id`、`participant_id`、正整数 `set_number`（从 1 开始）、`status`（`in_progress`、`completed`）、`started_at`、可空 `completed_at`。唯一 `(round_id, participant_id, set_number)`，同一参与者每个批次最多一个进行中的会话 |
 | `session_questions` | `id`、`session_id`、`round_question_id`、正整数 `position`、`assigned_at`。唯一 `(session_id, round_question_id)` 与 `(session_id, position)` |
 | `responses` | `id`、唯一 `session_question_id`、`selected_answer`（JSONB）、`submitted_at` |
 | `ratings` | `id`、唯一 `response_id`、`quality`（`low`、`medium`、`high`）、`source`（`default`、`explicit`、`legacy`）、`submitted_at` |
 | `examerframe_private.question_feedback` | 唯一 `question_version_id`、`standard_answer`（JSONB）、非空 `explanation`（纯文本）；仅由受控流程装载 |
 
+- 会话状态 `completed` 表示该组已结束（全部答完或达到门槛后换组）；实际已答题数以 `responses` 为准。换组时不为跳过的题创建作答或评价。
 - 每次分发必须验证题目属于该会话批次。一个批次同一逻辑题目最多启用一个版本，同一会话同一逻辑题目最多出现一次。
 - 仅 `published` 状态且已审核的版本可以启用分发。发布后题干、题型和选项不可原地改写。旧版本可以停用或退役。已有分发与作答的记录使用限制删除的外键保留关联。
 - 用部分唯一约束限制最多一个 `open` 批次。服务端在创建会话时同时检查批次状态和时间窗口。
@@ -94,7 +96,7 @@
 
 无评价时权重为 1。相同覆盖率下，新增低评价会降低或维持相对权重，高评价会提高或维持相对权重，中评价使权重趋近 1。默认权重在服务端集中定义，测试可注入固定随机数。评价影响之后创建的题单，已分配题单不重排。单次低评价不会自动停用或删除题目。
 
-分发使用单个数据库事务。在同批次锁内检查已有会话与候选、计算权重、写入会话和固定题单。题库不足时返回可读的错误并回滚。重试和并发请求复用已有会话。
+分发使用单个数据库事务。在同批次锁内检查已有会话与候选、计算权重、写入会话和固定题单。达到作答门槛后请求下一组时，按逻辑题目 ID 排除上一组发放的所有题目，包含跳过或已替换版本的题目。题库不足时返回可读的错误并回滚。用同一会话请求下一组时，重试和并发请求复用它的直接后续会话。
 
 ## 8. API 契约
 
@@ -103,7 +105,8 @@
 | 操作 | 契约 |
 | --- | --- |
 | `get-active-round` | 返回当前开放批次的公开信息，以及该用户最近可恢复会话的引用（如有） |
-| `start-or-resume-session` | 输入批次 ID，复用已有会话或原子创建会话与题单。返回会话 ID、进度和状态 |
+| `start-or-resume-session` | 输入批次 ID，复用最近一组，或原子创建首组会话与题单。返回会话 ID、进度和状态 |
+| `start-next-review-session` | 输入达到作答门槛的当前会话 ID，在同一开放批次结束本组、原子分配不与本组重叠的下一组并返回复习题单；同一会话的重试返回同一组 |
 | `get-review-session` | 输入会话 ID，返回当前用户的固定题单。未作答题只有题干与选项等公开字段；已作答题返回本人答案、评价状态及该版本的判定、标准答案和解析 |
 | `submit-review-answer` | 输入会话 ID、该会话任一分配记录 ID 与答案。在同一事务保存首次答案及默认「中」，答完题单时标记完成；返回更新后的复习题单 |
 | `submit-review-rating` | 输入作答 ID 与 `quality`。验证作答归属，以主动评价替换默认「中」；重复相同提交复用结果。允许在完成后评价 |

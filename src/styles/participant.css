@@ -313,6 +313,23 @@ summary:focus-visible {
   overflow-wrap: anywhere;
 }
 
+#next-set {
+  justify-self: start;
+  margin-block-start: 0.35rem;
+}
+
+#next-set-status {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+#next-set-status:empty {
+  position: absolute;
+}
+
 .question-map {
   display: flex;
   flex-wrap: wrap;

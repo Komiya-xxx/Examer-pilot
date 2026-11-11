@@ -32,8 +32,10 @@ const contactEmail = contact?.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/)?.[0];
         <div class="session-summary">
           <h2 id="session-title">答题进度</h2>
           <p id="session-progress"></p>
+          <button id="next-set" class="secondary-button" type="button" hidden>换一组题</button>
         </div>
         <ol id="question-map" class="question-map" aria-label="题目进度"></ol>
+        <p id="next-set-status" role="status"></p>
       </section>
 
       <div id="status-card" class="status-card">

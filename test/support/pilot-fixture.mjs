@@ -17,15 +17,31 @@ function participantId(value, label) {
   return literal(value);
 }
 
+// Builds the pool the fixture loads. The sample file is the source set; a pool
+// larger than it repeats those samples with a numeric stem suffix so every
+// question version keeps a distinct stem while type and options stay intact.
+function syntheticPool(examples, size) {
+  assert.ok(Number.isInteger(size) && size > 0, "poolSize must be a positive integer");
+  return Array.from({ length: size }, (_, index) => {
+    const example = examples[index % examples.length];
+    return index < examples.length ? example : { ...example, stem: `${example.stem}（${index + 1}）` };
+  });
+}
+
 // Loads the synthetic round used by both local integration cases and removes
 // everything it wrote, including stage 7 limiter rows of the tagged test
-// identities and the optional browser participant.
-export async function pilotFixture({ feedback = false } = {}) {
+// identities and the optional browser participant. Session and pool sizes
+// default to the sample count, so the original three-question round is unchanged.
+export async function pilotFixture({ feedback = false, questionsPerSession, poolSize } = {}) {
   assert.equal(localDatabase("select count(*) from public.evaluation_rounds where status = 'open'"), "0",
     "Use an isolated local database with no open round");
   const run = randomUUID();
   const round = randomUUID();
   const examples = JSON.parse(await readFile(new URL("../fixtures/questions.json", import.meta.url), "utf8"));
+  const sessionSize = questionsPerSession ?? examples.length;
+  const pool = syntheticPool(examples, poolSize ?? examples.length);
+  assert.ok(Number.isInteger(sessionSize) && sessionSize > 0 && sessionSize <= pool.length,
+    "questionsPerSession must be a positive integer no larger than the pool");
   // Stage 7 must be installed: the write-limiter table is a hard requirement, and
   // its absence fails the fixture rather than silently relaxing the rate checks.
   assert.equal(
@@ -58,18 +74,18 @@ export async function pilotFixture({ feedback = false } = {}) {
     begin;
     set local standard_conforming_strings = on;
     insert into public.evaluation_rounds (id, slug, title, status, questions_per_session)
-      values ('${round}', 'acceptance-${run}', '本地合成题验收', 'open', ${examples.length});
+      values ('${round}', 'acceptance-${run}', '本地合成题验收', 'open', ${sessionSize});
     insert into public.questions (external_id)
-      values ${examples.map((_, index) => `('acceptance-${run}-${index}')`).join(", ")};
+      values ${pool.map((_, index) => `('acceptance-${run}-${index}')`).join(", ")};
     insert into public.question_versions (question_id, version_no, question_type, stem, options, review_status)
       select question.id, example.version_no, example.question_type, example.stem,
              example.options::jsonb, 'published'
       from unnest(
-        ${array(examples.map((_, index) => literal(`acceptance-${run}-${index}`)))},
-        ${array(examples.map(({ version_no }) => Number(version_no)))}::integer[],
-        ${array(examples.map(({ question_type }) => literal(question_type)))},
-        ${array(examples.map(({ stem }) => literal(stem)))},
-        ${array(examples.map(({ options }) => literal(JSON.stringify(options))))}
+        ${array(pool.map((_, index) => literal(`acceptance-${run}-${index}`)))},
+        ${array(pool.map(({ version_no }) => Number(version_no)))}::integer[],
+        ${array(pool.map(({ question_type }) => literal(question_type)))},
+        ${array(pool.map(({ stem }) => literal(stem)))},
+        ${array(pool.map(({ options }) => literal(JSON.stringify(options))))}
       ) as example(external_id, version_no, question_type, stem, options)
       join public.questions as question on question.external_id = example.external_id;
     insert into public.round_questions (round_id, question_version_id, question_id)

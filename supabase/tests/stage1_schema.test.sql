@@ -195,7 +195,7 @@ select throws_ok(
 select throws_ok(
   $$insert into public.sessions (round_id, participant_id)
     values ('00000000-0000-4000-8000-000000000101', '00000000-0000-4000-8000-000000000901')$$,
-  '23505', null, 'A participant cannot have two sessions for the same round'
+  '23505', null, 'A participant cannot have two first sets for the same round'
 );
 
 select throws_ok(

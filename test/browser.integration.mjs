@@ -60,7 +60,7 @@ if (!chromePath) {
 }
 
 const localOrigins = new Set([site.origin, localApiConfig().api.origin]);
-const fixture = await pilotFixture({ feedback: true });
+const fixture = await pilotFixture({ feedback: true, questionsPerSession: 10, poolSize: 20 });
 async function waitFor(callback, label) {
   for (let i = 0; i < 75; i += 1) {
     const result = await callback();
@@ -133,6 +133,7 @@ try {
   const isEnabled = s => page(enabled(s));
   const contains = text => page("document.body?.innerText?.includes(" + JSON.stringify(text) + ")");
   const submit = "#submit-answer";
+  const nextSet = "#next-set";
   const choice = '#answer-options input[name="answer"]';
   const rating = (value) => `#rating-options input[value="${value}"]`;
   const chosen = () => page('document.querySelector(\'#rating-options input:checked\')?.value ?? null');
@@ -185,7 +186,8 @@ try {
   await click('[data-practice-type="fill"]');
   assert.ok(await contains("填空题正在准备"));
   assert.ok(await position(1), "Future type options do not change the assigned session");
-  assert.equal(await page("document.querySelectorAll('.question-map button').length"), 3);
+  assert.equal(await page("document.querySelectorAll('.question-map button').length"), 10);
+  assert.equal(await page("document.querySelector('#next-set').hidden"), true);
   assert.equal(await page("document.querySelector('#answer-review').hidden"), true);
   assert.equal(await page("document.querySelector('#rating-options').hidden"), true);
 
@@ -244,7 +246,25 @@ try {
   assert.equal(await result(), undefined);
   await selectAnswer(true);
   await click(submit);
-  await waitFor(() => contains("全部作答完成"), "completion without an explicit rating on every question");
+  await waitFor(async () => (await result()) === "correct", "second answer saved");
+  for (let number = 4; number <= 5; number += 1) {
+    await go(number);
+    await selectAnswer(true);
+    await click(submit);
+    await waitFor(async () => (await result()) === "correct", "answer " + number + " saved");
+  }
+  assert.equal(await page("document.querySelector('#next-set').hidden"), true,
+    "Five answers do not yet open the next set");
+  await go(6);
+  await selectAnswer(true);
+  await click(submit);
+  await waitFor(async () => (await result()) === "correct", "answer 6 saved");
+  await waitFor(() => isEnabled(nextSet), "next-set button after six answers");
+  assert.equal(await page("document.querySelectorAll('.question-map li[data-state=\"upcoming\"]').length"), 4,
+    "Four questions stay unanswered when the next set opens");
+  assert.ok(await contains("已作答 6 / 10 题"));
+  assert.equal(await page("document.documentElement.scrollWidth === document.documentElement.clientWidth"), true,
+    "The next-set button must not cause horizontal scrolling on mobile");
 
   await go(3);
   assert.equal(await result(), "correct");
@@ -255,18 +275,37 @@ try {
   assert.ok(await contains("已记录：「高」"));
   assert.equal(await page("document.querySelector('#privacy')?.open"), false, "Dismissed notice stays closed");
 
+  await call("Network.setBlockedURLs", { urls: ["*start-next-review-session*"] });
+  await click(nextSet);
+  await waitFor(async () => (await isEnabled(nextSet)) && (await contains("暂时无法领取新题")), "retry after failed next set");
+  assert.equal(await result(), "correct", "A failed request leaves the previous explanation on screen");
+  assert.ok(await position(3));
+  await call("Network.setBlockedURLs", { urls: [] });
+  await click(nextSet);
+  await waitFor(async () => (await position(1)) && (await isEnabled(submit)), "new set ready at the first question");
+  assert.equal(await page("document.querySelector('#next-set').hidden"), true);
+  assert.equal(await result(), undefined);
+  assert.ok(await contains("已作答 0 / 10 题"));
+  assert.equal(await page("document.querySelectorAll('.question-map button').length"), 10);
+  const newStem = await page("document.querySelector('#question-stem').textContent");
+  await reloadAndWait();
+  await waitFor(() => isEnabled(submit), "reload restores the newly allocated set");
+  assert.ok(await position(1));
+  assert.equal(await page("document.querySelector('#question-stem').textContent"), newStem);
+
   const uuid = /^[0-9a-f-]{36}$/;
   assert.match(participant, uuid);
   assert.match(fixture.round, uuid);
   assert.equal(localDatabase(
-    "select string_agg(t.quality || ':' || t.source, ',' order by a.position) "
+    "select count(*) filter (where t.quality='medium' and t.source='default') || ':' || "
+    + "count(*) filter (where t.quality='high' and t.source='explicit' and a.position=3) "
     + "from public.sessions s join public.session_questions a on a.session_id=s.id "
     + "join public.responses r on r.session_question_id=a.id join public.ratings t on t.response_id=r.id "
     + "where s.participant_id='" + participant + "' and s.round_id='" + fixture.round + "'"
-  ), "medium:default,medium:default,high:explicit", "Default and learner ratings are distinguishable");
+  ), "5:1", "The earlier set retains its five default ratings and the learner's explicit rating");
   if (navigationErrors.length) throw new Error(navigationErrors[0]);
   assert.deepEqual(networkErrors, []);
-  console.log("Chrome mobile: free navigation, correct and incorrect feedback, retries, restored review, and default versus explicit ratings passed.");
+  console.log("Chrome mobile: ten-question review, next-set retry, saved ratings, and reload of the new set passed.");
 } finally {
   socket?.close();
   chrome?.kill();

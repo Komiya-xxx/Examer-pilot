@@ -24,11 +24,13 @@ npm run preview -- --host 127.0.0.1
 
 ## 复习模式与首轮试点数据
 
-复习页面使用 `get-review-session`、`submit-review-answer` 和 `submit-review-rating`，旧版的顺序作答接口保留。复习模式不更换现有批次及参与者题单。答案和解析放在 `examerframe_private.question_feedback`，按既有题目版本关联；只有收到该参与者的有效作答才返回。缺少对应材料时显示「暂未提供」。
+复习页面使用 `get-review-session`、`submit-review-answer` 和 `submit-review-rating`，旧版的顺序作答接口保留。一组十题中提交任意六题即可点「换一组题」，也可以继续作答。换组会跳过本组未答的题，下一组避开本组发放的全部十题。普通刷新继续当前题单。答案和解析放在 `examerframe_private.question_feedback`，按既有题目版本关联；只有收到该参与者的有效作答才返回。缺少对应材料时显示「暂未提供」。
 
 按题目版本统计质量时，用 `ratings.source = 'explicit'` 筛选主动评价；`default` 是未选择时的「中」，`legacy` 是无法区分来源的旧数据。主动选「中」仍计入主动评价。试点分发继续使用质量等级计算权重。
 
 上线依次应用 `20261111000000_review_mode.sql`、核对并私下回填首轮 50 道题的已审核答案与解析、部署三个复习 Edge Functions，最后在 CI 通过后发布 Pages。先在隔离环境用 `--dry-run` 生成回滚版 SQL 检查，再由获授权的数据库管理员执行正式回填。脚本仅写入匹配题号、确切版本、题干和有序选项的题目；批次有差异或已有解析冲突时整体拒绝写入。生成文件含题库数据，必须留在 Git 忽略的 `exports/` 内，禁止提交或上传至 Pages。备份恢复演练应包含私有解析表。
+
+为已有复习部署启用换题：先应用 `20261111000001_repeat_review_sets.sql`，再部署 `start-next-review-session`，最后在 CI 通过后发布 Pages。无需重新装载题目或回填答案。
 
 ```powershell
 python scripts/prepare_review_backfill.py `

@@ -5,7 +5,7 @@ type Quality = "low" | "medium" | "high";
 type Answer = string | string[] | boolean;
 type QuestionType = "single_choice" | "multiple_choice" | "true_false";
 type Operation = "get-active-round" | "start-or-resume-session" | "get-review-session" |
-  "submit-review-answer" | "submit-review-rating";
+  "submit-review-answer" | "submit-review-rating" | "start-next-review-session";
 
 interface ResponseView {
   id: string;
@@ -39,6 +39,7 @@ const qualityHints = {
   medium: "保存后会记录为你主动给出的「中」。",
   high: "谢谢你的反馈！这道题今后更有机会发放。",
 };
+const nextSetMinimumAnswers = 6;
 
 function element<T extends HTMLElement>(id: string) {
   return document.getElementById(id) as T;
@@ -52,6 +53,8 @@ const typeStatus = element("type-status");
 const sessionSection = element("saved-session");
 const sessionProgress = element("session-progress");
 const questionMap = element("question-map");
+const nextSet = element<HTMLButtonElement>("next-set");
+const nextSetStatus = element("next-set-status");
 const questionSection = element("current-question");
 const questionProgress = element("question-progress");
 const questionType = element("question-type");
@@ -205,6 +208,7 @@ function connect(url: string, publishableKey: string) {
   const ratingDrafts = new Map<string, Quality>();
   let session: ReviewSession | undefined;
   let position: number | undefined;
+  let batchOpen = false;
   let busy = false;
 
   const current = () => session?.questions.find((question) => question.position === position);
@@ -238,6 +242,7 @@ function connect(url: string, publishableKey: string) {
     busy = value;
     const question = current();
     retry.disabled = value;
+    nextSet.disabled = value;
     submitButton.disabled = value || !question || !!question.response;
     answerOptions.disabled = value || !question || !!question.response;
     ratingOptions.disabled = value || !question?.response || ratingIsSaved(question.response);
@@ -253,9 +258,14 @@ function connect(url: string, publishableKey: string) {
     questionSection.hidden = !question;
     questionStatus.textContent = "";
     const answered = questions.filter((item) => item.response).length;
-    sessionProgress.textContent = answered === questions.length
+    const complete = questions.length > 0 && answered === questions.length;
+    const canSwitch = batchOpen && questions.length > 0
+      && answered >= Math.min(nextSetMinimumAnswers, questions.length);
+    nextSet.hidden = !canSwitch;
+    sessionProgress.textContent = complete
       ? "全部作答完成 · 可回看解析"
-      : "已作答 " + answered + " / " + questions.length + " 题 · 点击题号跳转";
+      : "已作答 " + answered + " / " + questions.length + " 题"
+        + (canSwitch ? " · 换组将跳过未答题" : " · 点击题号跳转");
     questionMap.replaceChildren(...questions.map((item) => {
       const li = document.createElement("li");
       const button = document.createElement("button");
@@ -302,7 +312,9 @@ function connect(url: string, publishableKey: string) {
       const identity = await getAnonymousSession(client, true);
       if (!identity) throw new RequestError("暂时无法建立匿名会话。");
       const token = identity.access_token;
-      const lobby = await request<{ round: { id: string } | null; session: { id: string } | null }>("get-active-round", token);
+      const lobby = await request<{
+        round: { id: string } | null; session: { id: string; round_id: string } | null;
+      }>("get-active-round", token);
       let id = lobby.session?.id;
       if (!id && lobby.round) {
         const started = await request<{ session: { id: string } | null }>(
@@ -316,6 +328,7 @@ function connect(url: string, publishableKey: string) {
       }
       session = await readSession(id, token);
       if (!session.questions.length) throw new RequestError("暂时无法加载题单。");
+      batchOpen = !!lobby.round && (!lobby.session || lobby.session.round_id === lobby.round.id);
       let previous: number | undefined;
       try { previous = Number(sessionStorage.getItem(positionKey(id))); } catch { /* Use the first unanswered question. */ }
       position = session.questions.find((item) => item.position === previous)?.position
@@ -326,6 +339,30 @@ function connect(url: string, publishableKey: string) {
       const disabled = error && typeof error === "object" && "code" in error && error.code === "anonymous_provider_disabled";
       showStatus(disabled ? "当前暂未开放匿名参与，请稍后再试。"
         : error instanceof RequestError ? error.message : "暂时无法连接，请重试。", "重试");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startNextSet() {
+    if (busy || !session || nextSet.hidden) return;
+    setBusy(true);
+    nextSetStatus.textContent = "正在领取下一组题…";
+    try {
+      const identity = await getAnonymousSession(client, false);
+      if (!identity) throw new RequestError("会话已失效，请刷新页面后继续。");
+      const next = await request<ReviewSession>("start-next-review-session", identity.access_token, {
+        previous_session_id: session.session_id,
+      });
+      if (!next.questions.length) throw new RequestError("暂时无法加载题单，请重试。");
+      answerDrafts.clear();
+      ratingDrafts.clear();
+      session = next;
+      position = next.questions.find((item) => !item.response)?.position ?? next.questions[0].position;
+      nextSetStatus.textContent = "";
+      render({ focus: true });
+    } catch (error) {
+      nextSetStatus.textContent = error instanceof RequestError ? error.message : "暂时无法领取新题，请重试。";
     } finally {
       setBusy(false);
     }
@@ -419,6 +456,7 @@ function connect(url: string, publishableKey: string) {
   });
   form.addEventListener("submit", (event) => { event.preventDefault(); void save("answer"); });
   saveRating.addEventListener("click", () => void save("rating"));
+  nextSet.addEventListener("click", () => void startNextSet());
   retry.addEventListener("click", () => void refresh());
   void refresh();
 }

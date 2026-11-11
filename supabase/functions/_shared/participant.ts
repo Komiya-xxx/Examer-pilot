@@ -45,6 +45,20 @@ const rpcErrorMappings: readonly RpcErrorMapping[] = [
     message: "当前批次的题目不足，请稍后再试。",
   },
   {
+    sqlState: "PT409",
+    status: 409,
+    marker: "NEXT_SET_POOL_TOO_SMALL",
+    code: "NEXT_SET_POOL_TOO_SMALL",
+    message: "暂时凑不齐一组与本组不同的题目，你仍可回看本组解析。",
+  },
+  {
+    sqlState: "PT409",
+    status: 409,
+    marker: "NEXT_SET_MIN_ANSWERS_REQUIRED",
+    code: "NEXT_SET_MIN_ANSWERS_REQUIRED",
+    message: "本组已提交的答案还不够，暂时不能换题。",
+  },
+  {
     sqlState: "PT404",
     status: 404,
     marker: "SESSION_NOT_FOUND",
@@ -112,6 +126,7 @@ export function isUuid(value: unknown): value is string {
 // rather than by a caller-supplied flag that a future write could forget to set.
 const limitedWriteRpcNames = new Set<string>([
   "start_or_resume_session_for_participant",
+  "start_next_review_session_for_participant",
   "submit_answer_for_participant",
   "submit_rating_for_participant",
   "submit_review_answer_for_participant",

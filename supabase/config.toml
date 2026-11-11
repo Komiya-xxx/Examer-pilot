@@ -55,3 +55,6 @@ verify_jwt = false
 
 [functions.submit-review-rating]
 verify_jwt = false
+
+[functions.start-next-review-session]
+verify_jwt = false
