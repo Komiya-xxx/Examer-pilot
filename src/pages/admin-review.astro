@@ -1,0 +1,108 @@
+---
+import "../styles/participant.css";
+import "../styles/admin-review.css";
+
+const base = import.meta.env.BASE_URL;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="description" content="题目审查入口：输入审查密钥后查看题目的标准答案与解析，并评价题目质量。" />
+    <title>题目审查 · 法医病理学</title>
+  </head>
+  <body>
+    <main class="quiz-shell staff-shell">
+      <header class="quiz-hero staff-hero">
+        <p class="notice-kicker">管理人员</p>
+        <h1>题目审查</h1>
+        <p class="staff-intro">输入审查密钥查看标准答案与解析，并评价题目质量。</p>
+      </header>
+
+      <section id="staff-login" class="staff-login-card" aria-labelledby="staff-login-title">
+        <h2 id="staff-login-title">审查登录</h2>
+        <form id="staff-login-form" method="post" novalidate>
+          <div class="staff-field">
+            <label for="staff-key">审查密钥</label>
+            <input
+              id="staff-key"
+              type="password"
+              autocomplete="current-password"
+              autocapitalize="off"
+              spellcheck="false"
+              required
+              aria-describedby="staff-status"
+            />
+          </div>
+          <div class="staff-login-actions">
+            <button class="primary-button" type="submit" disabled>进入审查</button>
+            <a class="staff-back-link" href={base}>返回答题页</a>
+          </div>
+        </form>
+      </section>
+
+      <p id="staff-status" class="staff-status" role="status" aria-live="polite"></p>
+
+      <section id="staff-review" class="staff-review" aria-labelledby="staff-review-title" hidden>
+        <header class="staff-review-head">
+          <h2 id="staff-review-title" tabindex="-1">待审查题目</h2>
+          <button id="staff-exit" class="secondary-button" type="button">退出审查</button>
+        </header>
+
+        <div id="staff-questions" class="staff-questions" role="list" aria-label="待审查题目"></div>
+
+        <nav class="staff-pager" aria-label="题目分页">
+          <button id="staff-prev" class="secondary-button" type="button" disabled>上一页</button>
+          <p id="staff-page" class="staff-page"></p>
+          <button id="staff-next" class="secondary-button" type="button" disabled>下一页</button>
+        </nav>
+      </section>
+    </main>
+
+    <template id="staff-question-template">
+      <article class="question-card staff-card" role="listitem">
+        <h3 class="staff-card-id" data-staff-identifier></h3>
+        <p class="question-stem" data-staff-stem></p>
+        <ol class="staff-option-list" data-staff-options></ol>
+
+        <section class="answer-review staff-answer" aria-label="答案与解析">
+          <h4 class="answer-review-label">标准答案</h4>
+          <p data-staff-answer></p>
+          <h4 class="answer-review-label">解析</h4>
+          <p data-staff-explanation></p>
+        </section>
+
+        <form class="staff-rating" data-staff-rating-form novalidate>
+          <fieldset class="quality-panel">
+            <legend>题目质量 <span class="quality-optional">（可选）</span></legend>
+            <div class="quality-choices">
+              <label class="quality-choice">
+                <input type="radio" name="quality" value="low" />
+                <span>低</span>
+              </label>
+              <label class="quality-choice">
+                <input type="radio" name="quality" value="medium" />
+                <span>中</span>
+              </label>
+              <label class="quality-choice">
+                <input type="radio" name="quality" value="high" />
+                <span>高</span>
+              </label>
+            </div>
+            <div class="quality-actions">
+              <button class="secondary-button" type="submit">保存评价</button>
+            </div>
+            <p class="quality-feedback" data-staff-rating-status role="status" aria-live="polite"></p>
+          </fieldset>
+        </form>
+      </article>
+    </template>
+
+    <script>
+      import "../scripts/admin-review.ts";
+    </script>
+  </body>
+</html>

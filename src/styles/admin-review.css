@@ -1,0 +1,319 @@
+/* ==========================================================================
+   ExamerFrame — staff review surface
+   Loaded after participant.css: reuses the forest/paper identity and only
+   adds the login, paged review list, and inline rating layout.
+   ========================================================================== */
+
+.staff-shell {
+  max-inline-size: 64rem;
+}
+
+/* Hero ------------------------------------------------------------------- */
+
+.staff-hero {
+  padding-block: clamp(1.15rem, 2.6vw, 1.6rem);
+}
+
+.staff-hero .notice-kicker {
+  color: #bfe0d3;
+}
+
+.staff-hero h1 {
+  max-inline-size: none;
+  margin-block-start: 0.3rem;
+  font-size: clamp(1.7rem, 1.3rem + 1.6vw, 2.3rem);
+}
+
+.staff-intro {
+  max-inline-size: 58ch;
+  margin-block-start: 0.5rem;
+  color: #cfe4dd;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+/* Login ------------------------------------------------------------------ */
+
+.staff-login-card {
+  padding: clamp(1.2rem, 3vw, 1.8rem);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background-color: var(--paper);
+  box-shadow: var(--shadow-card);
+}
+
+.staff-login-card h2 {
+  color: var(--forest-900);
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+}
+
+#staff-login-form {
+  display: grid;
+  gap: 0.95rem;
+  margin-block-start: 0.9rem;
+}
+
+.staff-field {
+  display: grid;
+  gap: 0.35rem;
+  max-inline-size: 26rem;
+}
+
+.staff-field label {
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
+
+#staff-key {
+  inline-size: 100%;
+  min-block-size: 2.9rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.75rem;
+  background-color: #fbfcfc;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.4;
+  transition: border-color 0.18s var(--ease),
+    background-color 0.18s var(--ease);
+}
+
+#staff-key:hover {
+  border-color: #93b3ab;
+}
+
+#staff-key:focus-visible {
+  border-color: var(--forest-700);
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  background-color: var(--paper);
+}
+
+.staff-login-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.2rem;
+}
+
+.staff-back-link {
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.staff-back-link:hover {
+  color: var(--forest-800);
+}
+
+/* Shared feedback -------------------------------------------------------- */
+
+.staff-status {
+  min-block-size: 1.5rem;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+/* Review shell ----------------------------------------------------------- */
+
+.staff-review {
+  display: grid;
+  gap: 1rem;
+}
+
+.staff-review-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.staff-review-head h2 {
+  color: var(--forest-900);
+  font-size: clamp(1.25rem, 1.1rem + 0.8vw, 1.55rem);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.staff-review-head h2:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+/* Cards stack in one column on small screens and pair up when there is
+   room; a single card still fills the row. */
+.staff-questions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.staff-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: clamp(1.1rem, 2.6vw, 1.65rem);
+}
+
+.staff-card-id {
+  color: var(--forest-700);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.staff-card .question-stem {
+  margin-block-end: 0;
+}
+
+[data-staff-options] {
+  display: grid;
+  gap: 0.45rem;
+}
+
+[data-staff-options] > li {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background-color: #fbfcfc;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* Answer and explanation ------------------------------------------------ */
+
+.staff-answer {
+  gap: 0.25rem;
+}
+
+.staff-answer > .answer-review-label:first-child {
+  margin-block-start: 0;
+}
+
+[data-staff-answer],
+[data-staff-explanation] {
+  color: var(--ink);
+  font-size: 0.92rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+[data-staff-explanation] {
+  color: var(--ink-soft);
+}
+
+/* Rating ----------------------------------------------------------------- */
+
+.staff-rating {
+  display: grid;
+}
+
+.staff-rating .quality-panel {
+  padding: 0.9rem 0.95rem 1rem;
+  border-radius: var(--radius-md);
+}
+
+.staff-rating .quality-choices {
+  align-items: stretch;
+  margin-block-start: 0.55rem;
+}
+
+.staff-rating .quality-actions {
+  margin-block-start: 0.75rem;
+}
+
+.staff-rating .quality-actions button {
+  min-inline-size: 7rem;
+}
+
+/* Keep a quiet line under the choices even before the form is submitted,
+   so the card does not jump when a status message appears. */
+.staff-rating [data-staff-rating-status],
+.staff-rating [data-staff-rating-status]:empty {
+  display: block;
+  min-block-size: 1.35rem;
+  margin-block-start: 0.2rem;
+  color: #3f5a53;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+/* Pagination ------------------------------------------------------------- */
+
+.staff-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem 1rem;
+}
+
+.staff-pager button {
+  min-inline-size: 6.5rem;
+}
+
+.staff-page {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* Responsive ------------------------------------------------------------- */
+
+@media (max-width: 40rem) {
+  .staff-login-card {
+    padding: 1.15rem 1rem 1.25rem;
+    border-radius: 1.3rem;
+  }
+
+  .staff-login-actions {
+    align-items: stretch;
+  }
+
+  .staff-login-actions .primary-button {
+    inline-size: 100%;
+  }
+
+  .staff-back-link {
+    text-align: center;
+  }
+
+  .staff-card {
+    padding: 1.1rem 1rem 1.2rem;
+    border-radius: 1.3rem;
+  }
+
+  .staff-card::before {
+    border-radius: 1.3rem 1.3rem 0 0;
+  }
+
+  .staff-pager button {
+    flex: 1 1 6rem;
+    min-inline-size: 0;
+  }
+
+  .staff-page {
+    flex-basis: 100%;
+    order: -1;
+  }
+}

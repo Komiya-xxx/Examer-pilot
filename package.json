@@ -13,7 +13,7 @@
     "check": "astro check",
     "build": "astro build",
     "preview": "astro preview",
-    "test": "node --test test/smoke.test.mjs test/stage2.edge-cors.test.mjs"
+    "test": "node --test test/smoke.test.mjs test/stage2.edge-cors.test.mjs test/admin-review.edge.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.119.0",

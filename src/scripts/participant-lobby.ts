@@ -1,8 +1,8 @@
 import { PUBLIC_SUPABASE_PUBLISHABLE_KEY, PUBLIC_SUPABASE_URL } from "astro:env/client";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { formatAnswer, type Answer } from "./answer-format";
 
 type Quality = "low" | "medium" | "high";
-type Answer = string | string[] | boolean;
 type QuestionType = "single_choice" | "multiple_choice" | "true_false";
 type Operation = "get-active-round" | "start-or-resume-session" | "get-review-session" |
   "submit-review-answer" | "submit-review-rating" | "start-next-review-session";
@@ -103,14 +103,6 @@ for (const button of document.querySelectorAll<HTMLButtonElement>("[data-practic
   });
 }
 
-function formatAnswer(question: Question, answer: Answer) {
-  if (typeof answer === "boolean") return answer ? "正确" : "错误";
-  return (Array.isArray(answer) ? answer : [answer]).map((id) => {
-    const option = question.options.find((item) => item.id === id);
-    return option ? id + "．" + option.text : id;
-  }).join("；");
-}
-
 function renderChoices(question: Question, draft: Answer | undefined) {
   const judgment = question.question_type === "true_false";
   const options = judgment ? judgmentOptions : question.options;
@@ -175,9 +167,9 @@ function renderReview(question: Question, animate: boolean) {
   review.dataset.result = feedback ? (feedback.correct ? "correct" : "incorrect") : "unavailable";
   verdict.textContent = !response ? "" : !feedback ? "答案已保存，解析暂未提供"
     : feedback.correct ? "✓ 答对啦！" : "这题答错了，看看解析吧。";
-  standardAnswer.textContent = feedback ? formatAnswer(question, feedback.standard_answer) : "暂未提供";
+  standardAnswer.textContent = feedback ? formatAnswer(question.options, feedback.standard_answer) : "暂未提供";
   explanation.textContent = feedback?.explanation ?? "这道题的解析暂未提供。";
-  savedAnswer.textContent = response ? formatAnswer(question, response.selected_answer) : "";
+  savedAnswer.textContent = response ? formatAnswer(question.options, response.selected_answer) : "";
   if (animate && feedback) review.classList.add("play-feedback");
 }
 

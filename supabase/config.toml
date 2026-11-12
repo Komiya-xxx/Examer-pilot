@@ -58,3 +58,6 @@ verify_jwt = false
 
 [functions.start-next-review-session]
 verify_jwt = false
+
+[functions.admin-review]
+verify_jwt = false

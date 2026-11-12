@@ -245,7 +245,7 @@ export async function readRatingBody(
   };
 }
 
-function isHttpOrigin(value: string): boolean {
+export function isHttpOrigin(value: string): boolean {
   try {
     const url = new URL(value);
     return url.origin === value &&
@@ -255,7 +255,7 @@ function isHttpOrigin(value: string): boolean {
   }
 }
 
-function platformKey(dictionaryName: string, legacyName: string): string | undefined {
+export function platformKey(dictionaryName: string, legacyName: string): string | undefined {
   const dictionary = Deno.env.get(dictionaryName);
   if (dictionary) {
     try {

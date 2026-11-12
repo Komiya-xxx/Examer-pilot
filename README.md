@@ -264,6 +264,12 @@ node --env-file=.env.local --test test/stage3.integration.mjs
 本地恢复演练在隔离 PostgreSQL 库进行：两个空库分别重放 migrations，在源库装载合成题并产生一份真实作答和评价，用 `pg_dump --data-only --schema=public -Fc` 导出八张业务表，再用 `pg_restore --data-only --exit-on-error --single-transaction` 恢复到目标库。对比版本、分配、作答和评价并复核客户端权限。托管试点应另在隔离环境验证 Auth 身份和业务记录能够一并恢复，记录恢复时间和可接受的数据损失范围。
 
 
+## 管理人员题目审查
+
+首页右下角的「审查入口」通往独立审查页。密钥验证通过后，页面分批展示题库中每道题的最新版本，包括待发放和已停发的题目。标准答案和解析按版本读取，缺失时提示尚未导入。每个版本保存一条可修改的审查评价，写入 `examerframe_private.staff_question_ratings`。
+
+部署时应用审查迁移，再配置并发布 `admin-review` Edge Function。使用 32 个随机字节的 base64url 编码作为密钥（43 字符），将 `EXAMERFRAME_STAFF_REVIEW_KEY` 写入 Git 忽略的环境文件并通过 `supabase secrets set --env-file` 加载到目标项目。正式页面只使用公开的 Supabase 连接配置。审查会话两小时后过期，更换服务端密钥会使旧会话失效。详见 [Supabase Edge Function 环境变量](https://supabase.com/docs/guides/functions/secrets)。
+
 ## 阶段 7：本地复验
 
 本地 Supabase 启动且 migrations 已全部应用后，在没有开放批次的本地测试库运行。测试会建立并清理专用的合成题单和匿名身份；不要指向托管项目。仅在 Docker 位于 WSL Ubuntu 时设置 `EXAMERFRAME_TEST_WSL_DISTRO`：
