@@ -2,7 +2,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(34);
+select plan(44);
 select ok((select relrowsecurity from pg_class
     where oid = 'examerframe_private.staff_question_ratings'::regclass),
     'Staff ratings have row-level security enabled');
@@ -127,6 +127,48 @@ select throws_ok(format('select public.save_staff_question_rating(%L, null)', :'
     'PT400', 'INVALID_QUALITY', 'A missing quality is rejected');
 select throws_ok(format('select public.save_staff_question_rating(%L,%L)', gen_random_uuid(), 'high'),
     'PT404', 'QUESTION_VERSION_NOT_FOUND', 'An unknown version is rejected');
+
+update public.question_versions set review_status = 'retired' where id = :'v2';
+
+select v.id as v1b from public.question_versions v join public.questions q on q.id = v.question_id
+where q.external_id = 'staff-review-02' and v.version_no = 1 \gset
+
+insert into public.question_versions (question_id, version_no, question_type, stem, options, review_status)
+select id, 2, 'true_false', 'Synthetic renewed revision', '[]'::jsonb, 'published'
+from public.questions where external_id = 'staff-review-02'
+returning id as v2b \gset
+
+update public.question_versions set review_status = 'retired' where id = :'v1b';
+
+select public.list_staff_review_questions() as afterretire \gset
+select is((select count(*) from jsonb_array_elements(:'afterretire'::jsonb -> 'questions') as e(item)
+        where item ->> 'external_id' = 'staff-review-01'), 0::bigint,
+    'A retired latest version hides the question instead of falling back');
+select is((select count(*) from public.question_versions v join public.questions q on q.id = v.question_id
+        where q.external_id = 'staff-review-01'), 2::bigint,
+    'The superseded versions of a retired question are kept but not listed');
+select is((select count(*) from jsonb_array_elements(:'afterretire'::jsonb -> 'questions') as e(item)
+        where item ->> 'external_id' = 'staff-review-02'), 1::bigint,
+    'A retired older version does not hide a newer visible version');
+select is((select min(item ->> 'version_no') from jsonb_array_elements(:'afterretire'::jsonb -> 'questions') as e(item)
+        where item ->> 'external_id' = 'staff-review-02'), '2',
+    'The newer version of that question is the one listed');
+select is(:'afterretire'::jsonb ->> 'next_cursor', 'staff-review-13',
+    'Hiding a retired question still pages without gaps');
+
+select throws_ok(format('select public.save_staff_question_rating(%L,%L)', :'v2', 'high'),
+    'PT404', 'QUESTION_VERSION_NOT_FOUND', 'A retired latest version cannot be rated');
+select throws_ok(format('select public.save_staff_question_rating(%L,%L)', :'v1b', 'low'),
+    'PT404', 'QUESTION_VERSION_NOT_FOUND', 'A retired older version cannot be rated');
+select is((select quality from examerframe_private.staff_question_ratings
+        where question_version_id = :'v2'), 'medium',
+    'A denied save leaves the retired version rating untouched');
+select is(public.save_staff_question_rating(:'v2b', 'high') ->> 'quality', 'high',
+    'A visible latest version can still be rated');
+select ok(public.save_staff_question_rating(:'v2b', 'high') = '{"quality": "high"}'::jsonb
+        and (select count(*) from examerframe_private.staff_question_ratings
+             where question_version_id = :'v2b') = 1,
+    'Repeating the same rating is idempotent and keeps a single row');
 
 set local role anon;
 select throws_ok($$select public.list_staff_review_questions()$$,

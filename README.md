@@ -268,6 +268,8 @@ node --env-file=.env.local --test test/stage3.integration.mjs
 
 首页右下角的「审查入口」通往独立审查页。密钥验证通过后，页面分批展示题库中每道题的最新版本，包括待发放和已停发的题目。标准答案和解析按版本读取，缺失时提示尚未导入。每个版本保存一条可修改的审查评价，写入 `examerframe_private.staff_question_ratings`。
 
+登录后可输入页码直接跳转，或按题目编号、题干、选项文字搜索。点击搜索结果会打开题目所在页并定位题卡。发布导航功能时，先应用审查导航迁移并部署更新后的 `admin-review` Edge Function，再发布 Pages。新版 Edge Function 继续支持旧网页的分页请求。
+
 部署时应用审查迁移，再配置并发布 `admin-review` Edge Function。使用 32 个随机字节的 base64url 编码作为密钥（43 字符），将 `EXAMERFRAME_STAFF_REVIEW_KEY` 写入 Git 忽略的环境文件并通过 `supabase secrets set --env-file` 加载到目标项目。正式页面只使用公开的 Supabase 连接配置。审查会话两小时后过期，更换服务端密钥会使旧会话失效。详见 [Supabase Edge Function 环境变量](https://supabase.com/docs/guides/functions/secrets)。
 
 ## 阶段 7：本地复验

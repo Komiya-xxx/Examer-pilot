@@ -71,7 +71,8 @@
   line-height: 1.5;
 }
 
-#staff-key {
+#staff-key,
+.staff-input {
   inline-size: 100%;
   min-block-size: 2.9rem;
   padding: 0.55rem 0.85rem;
@@ -85,11 +86,13 @@
     background-color 0.18s var(--ease);
 }
 
-#staff-key:hover {
+#staff-key:hover,
+.staff-input:hover {
   border-color: #93b3ab;
 }
 
-#staff-key:focus-visible {
+#staff-key:focus-visible,
+.staff-input:focus-visible {
   border-color: var(--forest-700);
   outline: 3px solid var(--focus);
   outline-offset: 2px;
@@ -150,6 +153,79 @@
   outline-offset: 3px;
 }
 
+.staff-search,
+.staff-jump {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.55rem;
+}
+
+.staff-search .staff-field {
+  flex: 1 1 14rem;
+  max-inline-size: none;
+  min-inline-size: 0;
+}
+
+#staff-browse-status:empty {
+  display: none;
+}
+
+.staff-jump {
+  align-items: center;
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+}
+
+.staff-jump .staff-input {
+  inline-size: 5rem;
+}
+
+.staff-results h3 {
+  color: var(--forest-900);
+  margin-block-end: 0.65rem;
+}
+
+.staff-matches {
+  display: grid;
+  gap: 0.65rem;
+  list-style: none;
+  padding: 0;
+}
+
+.staff-match {
+  display: grid;
+  gap: 0.3rem;
+  inline-size: 100%;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background-color: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.staff-match strong,
+.staff-match-option {
+  color: var(--forest-700);
+  font-size: 0.82rem;
+}
+
+.staff-match:hover:not(:disabled) {
+  border-color: var(--forest-700);
+}
+
+.staff-match:focus-visible,
+.staff-results h3:focus-visible,
+.staff-card-id:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
 /* Cards stack in one column on small screens and pair up when there is
    room; a single card still fills the row. */
 .staff-questions {
@@ -172,6 +248,12 @@
   letter-spacing: 0.08em;
   line-height: 1.5;
   overflow-wrap: anywhere;
+  scroll-margin-block-start: 1.25rem;
+}
+
+.staff-card-located {
+  outline: 2px solid var(--forest-700);
+  outline-offset: 2px;
 }
 
 .staff-card .question-stem {
@@ -263,7 +345,7 @@
   gap: 0.6rem 1rem;
 }
 
-.staff-pager button {
+.staff-pager > button {
   min-inline-size: 6.5rem;
 }
 
@@ -307,7 +389,7 @@
     border-radius: 1.3rem 1.3rem 0 0;
   }
 
-  .staff-pager button {
+  .staff-pager > button {
     flex: 1 1 6rem;
     min-inline-size: 0;
   }
@@ -315,5 +397,9 @@
   .staff-page {
     flex-basis: 100%;
     order: -1;
+  }
+
+  .staff-jump {
+    inline-size: 100%;
   }
 }

@@ -6,6 +6,8 @@ const keyPattern = /^[A-Za-z0-9_-]{43}$/;
 const sessionLifetimeSeconds = 2 * 60 * 60;
 const sessionPattern = /^(\d{10}\.[A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$/;
 const qualities = new Set(["low", "medium", "high"]);
+const maxPageNumber = 2_147_483_647;
+const maxBrowseTextLength = 200;
 const origins = new Set((Deno.env.get("EXAMERFRAME_ALLOWED_ORIGINS") ?? "")
   .split(",").map((origin) => origin.trim()).filter(isHttpOrigin));
 const encoder = new TextEncoder();
@@ -23,6 +25,13 @@ function validSession(header: string | null) {
   const session = token && sessionPattern.exec(token);
   return !!session && sameText(session[2], signSession(session[1])) &&
     Number(session[1].split(".")[0]) > Date.now() / 1000;
+}
+
+function browseText(value: unknown): string | null | undefined {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string" || value.includes("\0") || /[\uD800-\uDFFF]/u.test(value)) return undefined;
+  const trimmed = value.trim();
+  return trimmed && [...trimmed].length <= maxBrowseTextLength ? trimmed : undefined;
 }
 
 Deno.serve(async (request: Request) => {
@@ -68,10 +77,20 @@ Deno.serve(async (request: Request) => {
   }
 
   let rpc: string;
-  let args: Record<string, string | null>;
+  let args: Record<string, number | string | null>;
   if (body.action === "list" && (body.after === null || typeof body.after === "string")) {
     rpc = "list_staff_review_questions";
     args = { p_after_external_id: body.after };
+  } else if (body.action === "browse") {
+    const { page } = body;
+    const query = browseText(body.query);
+    const externalId = browseText(body.external_id);
+    if (!Number.isInteger(page) || page < 1 || page > maxPageNumber ||
+      query === undefined || externalId === undefined || (query !== null && externalId !== null)) {
+      return invalid();
+    }
+    rpc = "browse_staff_review_questions";
+    args = { p_page: page, p_query: query, p_external_id: externalId };
   } else if (body.action === "rate" && isUuid(body.question_version_id) && qualities.has(body.quality)) {
     rpc = "save_staff_question_rating";
     args = { p_question_version_id: body.question_version_id, p_quality: body.quality };
@@ -94,6 +113,7 @@ Deno.serve(async (request: Request) => {
       signal: AbortSignal.timeout(10_000),
     });
     const data = await result.json();
+    if (result.status === 400 && data?.code === "PT400") return invalid();
     if (result.status === 404 && data?.code === "PT404") return json({ message: "题目版本已不可用。" }, 404);
     return result.ok ? json(data) : unavailable();
   } catch {

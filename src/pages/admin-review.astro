@@ -52,12 +52,39 @@ const base = import.meta.env.BASE_URL;
           <button id="staff-exit" class="secondary-button" type="button">退出审查</button>
         </header>
 
-        <div id="staff-questions" class="staff-questions" role="list" aria-label="待审查题目"></div>
+        <form id="staff-search-form" class="staff-search" role="search" aria-label="搜索题目">
+          <div class="staff-field">
+            <label for="staff-search">搜索题目</label>
+            <input id="staff-search" class="staff-input" type="search" maxlength="200"
+              placeholder="输入题号、题干或选项文字" autocomplete="off" />
+          </div>
+          <button class="primary-button" type="submit">搜索</button>
+          <button id="staff-clear-search" class="secondary-button" type="button" hidden>清除搜索</button>
+        </form>
+
+        <p id="staff-browse-status" class="staff-status" role="status" aria-live="polite"></p>
 
         <nav class="staff-pager" aria-label="题目分页">
           <button id="staff-prev" class="secondary-button" type="button" disabled>上一页</button>
           <p id="staff-page" class="staff-page"></p>
           <button id="staff-next" class="secondary-button" type="button" disabled>下一页</button>
+          <form id="staff-jump-form" class="staff-jump" novalidate>
+            <label for="staff-jump-page">跳至第</label>
+            <input id="staff-jump-page" class="staff-input" type="number" min="1" step="1" inputmode="numeric"
+              aria-label="跳转页码" aria-describedby="staff-page" required disabled />
+            <span aria-hidden="true">页</span>
+            <button class="secondary-button" type="submit" disabled>跳转</button>
+          </form>
+        </nav>
+
+        <section id="staff-search-results" class="staff-results" aria-labelledby="staff-results-title" hidden>
+          <h3 id="staff-results-title" tabindex="-1">搜索结果</h3>
+          <ul id="staff-matches" class="staff-matches"></ul>
+        </section>
+        <div id="staff-questions" class="staff-questions" role="list" aria-label="待审查题目"></div>
+        <nav id="staff-bottom-pager" class="staff-pager staff-bottom-pager" aria-label="页尾题目分页" hidden>
+          <button id="staff-bottom-prev" class="secondary-button" type="button" disabled>上一页</button>
+          <button id="staff-bottom-next" class="secondary-button" type="button" disabled>下一页</button>
         </nav>
       </section>
     </main>

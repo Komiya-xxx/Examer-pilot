@@ -2,7 +2,6 @@ import { PUBLIC_SUPABASE_PUBLISHABLE_KEY, PUBLIC_SUPABASE_URL } from "astro:env/
 import { formatAnswer, type Answer } from "./answer-format";
 
 type Quality = "low" | "medium" | "high";
-type Cursor = string | null;
 type Session = { token: string; expires_at: number };
 type Question = {
   question_version_id: string;
@@ -14,8 +13,10 @@ type Question = {
   explanation: string | null;
   quality: Quality | null;
 };
-type Page = { questions: Question[]; next_cursor: Cursor };
-type StaffRequest = { action: "login"; key: string } | { action: "list"; after: Cursor } |
+type Match = { external_id: string; stem: string; matched_option: string | null };
+type Page = { page: number; total_pages: number; total_count: number; questions: Question[]; matches: Match[] };
+type Browse = { page: number; query?: string; external_id?: string };
+type StaffRequest = { action: "login"; key: string } | ({ action: "browse" } & Browse) |
   { action: "rate"; question_version_id: string; quality: string };
 
 function element<T extends HTMLElement>(id: string) {
@@ -37,17 +38,30 @@ const review = element("staff-review");
 const reviewTitle = element("staff-review-title");
 const questions = element("staff-questions");
 const pageNumber = element("staff-page");
+const browseStatus = element("staff-browse-status");
+const searchForm = element<HTMLFormElement>("staff-search-form");
+const searchInput = element<HTMLInputElement>("staff-search");
+const searchButton = searchForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+const clearSearch = element<HTMLButtonElement>("staff-clear-search");
+const results = element("staff-search-results");
+const resultsTitle = element("staff-results-title");
+const matches = element("staff-matches");
+const jumpForm = element<HTMLFormElement>("staff-jump-form");
+const jumpPage = element<HTMLInputElement>("staff-jump-page");
+const jumpButton = jumpForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
 const template = element<HTMLTemplateElement>("staff-question-template");
-const prev = element<HTMLButtonElement>("staff-prev");
-const next = element<HTMLButtonElement>("staff-next");
+const previousButtons = ["staff-prev", "staff-bottom-prev"].map(element<HTMLButtonElement>);
+const nextButtons = ["staff-next", "staff-bottom-next"].map(element<HTMLButtonElement>);
+const bottomPager = element("staff-bottom-pager");
 const exit = element<HTMLButtonElement>("staff-exit");
 const qualityLabels: Record<Quality, string> = { low: "低", medium: "中", high: "高" };
 
 let session: Session | null = null;
 let expiry: number | undefined;
-let cursors: Cursor[] = [null];
-let currentPage = 0;
-let nextCursor: Cursor = null;
+let currentPage = 1;
+let totalPages = 0;
+let activeQuery = "";
+let returnPage = 1;
 let loading = false;
 let pendingRatings = 0;
 
@@ -81,6 +95,13 @@ function endSession(message: string, focus = true) {
   window.clearTimeout(expiry);
   session = null;
   questions.replaceChildren();
+  matches.replaceChildren();
+  searchInput.value = "";
+  jumpPage.value = "";
+  browseStatus.textContent = "";
+  currentPage = returnPage = 1;
+  totalPages = 0;
+  activeQuery = "";
   review.hidden = true;
   loginPanel.hidden = false;
   key.value = "";
@@ -99,13 +120,24 @@ function reportError(error: unknown, target: HTMLElement) {
 }
 
 function updateNavigation() {
-  prev.disabled = loading || pendingRatings > 0 || currentPage === 0;
-  next.disabled = loading || pendingRatings > 0 || nextCursor === null;
+  const busy = loading || pendingRatings > 0;
+  for (const button of previousButtons) button.disabled = busy || currentPage <= 1;
+  for (const button of nextButtons) button.disabled = busy || currentPage >= totalPages;
+  bottomPager.hidden = totalPages <= 1;
+  jumpPage.disabled = jumpButton.disabled = busy || totalPages === 0;
+  jumpPage.max = String(totalPages);
+  searchInput.readOnly = busy;
+  searchButton.disabled = busy;
+  clearSearch.hidden = !activeQuery;
+  clearSearch.disabled = busy;
+  for (const button of matches.querySelectorAll("button")) button.disabled = busy;
 }
 
 function renderQuestion(question: Question, authorized: Session) {
   const card = template.content.cloneNode(true) as DocumentFragment;
   const identifier = card.querySelector<HTMLElement>("[data-staff-identifier]")!;
+  identifier.id = `staff-question-${question.external_id}`;
+  identifier.tabIndex = -1;
   identifier.textContent = `${question.external_id} · 第 ${question.version_no} 版`;
   card.querySelector<HTMLElement>("[data-staff-stem]")!.textContent = question.stem;
   const options = card.querySelector<HTMLElement>("[data-staff-options]")!;
@@ -161,29 +193,65 @@ function renderQuestion(question: Question, authorized: Session) {
   return card;
 }
 
-function renderPage(page: Page, index: number, authorized: Session) {
+function renderMatch(match: Match) {
+  const item = document.createElement("li");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "staff-match";
+  const id = document.createElement("strong");
+  id.textContent = match.external_id;
+  const stem = document.createElement("span");
+  stem.className = "staff-match-stem";
+  stem.textContent = match.stem;
+  button.append(id, stem);
+  if (match.matched_option !== null) {
+    const option = document.createElement("span");
+    option.className = "staff-match-option";
+    option.textContent = `匹配选项：${match.matched_option}`;
+    button.append(option);
+  }
+  button.addEventListener("click", () => void changePage({ page: 1, external_id: match.external_id }));
+  item.append(button);
+  return item;
+}
+
+function renderPage(page: Page, query: string, authorized: Session) {
+  activeQuery = query;
+  currentPage = page.page;
+  totalPages = page.total_pages;
+  if (!query) returnPage = page.page;
+  searchInput.value = query;
+  jumpPage.value = page.total_pages ? String(page.page) : "";
+  jumpPage.removeAttribute("aria-invalid");
+  results.hidden = !query;
+  questions.hidden = !!query;
+  matches.replaceChildren(...page.matches.map(renderMatch));
   questions.replaceChildren(...page.questions.map((question) => renderQuestion(question, authorized)));
-  currentPage = index;
-  nextCursor = page.next_cursor;
-  pageNumber.textContent = page.questions.length ? `第 ${index + 1} 页` : "";
-  status.textContent = page.questions.length ? "" : "暂无可审查的题目。";
+  pageNumber.textContent = page.total_pages ? `第 ${page.page} / ${page.total_pages} 页 · 共 ${page.total_count} 题` : "";
+  browseStatus.textContent = page.total_count === 0 ? (query ? "没有找到匹配的题目。" : "暂无可审查的题目。") : "";
   updateNavigation();
 }
 
-async function changePage(index: number, cursor: Cursor) {
+async function changePage(target: Browse) {
   const authorized = session;
   if (!authorized || loading || pendingRatings > 0) return;
   loading = true;
-  status.textContent = "正在加载题目…";
+  browseStatus.textContent = target.query ? "正在搜索…" : "正在加载题目…";
   updateNavigation();
   try {
-    const page = await request<Page>({ action: "list", after: cursor }, authorized.token);
+    const page = await request<Page>({ action: "browse", ...target }, authorized.token);
     if (session !== authorized) return;
-    cursors[index] = cursor;
-    renderPage(page, index, authorized);
-    reviewTitle.focus();
+    renderPage(page, target.query ?? "", authorized);
+    const located = target.external_id && document.getElementById(`staff-question-${target.external_id}`);
+    if (located) {
+      located.closest(".staff-card")?.classList.add("staff-card-located");
+      located.focus({ preventScroll: true });
+      located.scrollIntoView({ block: "start" });
+    } else {
+      (target.query ? resultsTitle : reviewTitle).focus();
+    }
   } catch (error) {
-    if (session === authorized) reportError(error, status);
+    if (session === authorized) reportError(error, browseStatus);
   } finally {
     if (session === authorized) {
       loading = false;
@@ -201,10 +269,10 @@ login.addEventListener("submit", async (event) => {
   status.textContent = "正在验证…";
   try {
     const authorized = await request<Session>({ action: "login", key: submittedKey });
-    const page = await request<Page>({ action: "list", after: null }, authorized.token);
-    renderPage(page, 0, authorized);
+    const page = await request<Page>({ action: "browse", page: 1 }, authorized.token);
+    renderPage(page, "", authorized);
     session = authorized;
-    cursors = [null];
+    status.textContent = "";
     loginPanel.hidden = true;
     review.hidden = false;
     reviewTitle.focus();
@@ -218,11 +286,38 @@ login.addEventListener("submit", async (event) => {
   }
 });
 
-prev.addEventListener("click", () => {
-  if (currentPage > 0) void changePage(currentPage - 1, cursors[currentPage - 1]);
+for (const button of previousButtons) {
+  button.addEventListener("click", () => {
+    if (currentPage > 1) void changePage({ page: currentPage - 1, query: activeQuery || undefined });
+  });
+}
+for (const button of nextButtons) {
+  button.addEventListener("click", () => {
+    if (currentPage < totalPages) void changePage({ page: currentPage + 1, query: activeQuery || undefined });
+  });
+}
+jumpForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (jumpButton.disabled) return;
+  const page = jumpPage.valueAsNumber;
+  if (!Number.isInteger(page) || page < 1 || page > totalPages) {
+    browseStatus.textContent = `请输入 1 至 ${totalPages} 之间的整数页码。`;
+    jumpPage.setAttribute("aria-invalid", "true");
+    jumpPage.focus();
+    return;
+  }
+  void changePage({ page, query: activeQuery || undefined });
 });
-next.addEventListener("click", () => {
-  if (nextCursor !== null) void changePage(currentPage + 1, nextCursor);
+jumpPage.addEventListener("input", () => jumpPage.removeAttribute("aria-invalid"));
+searchForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const query = searchInput.value.trim();
+  if (query) void changePage({ page: 1, query });
+  else if (activeQuery) void changePage({ page: returnPage });
+  else searchInput.focus();
+});
+clearSearch.addEventListener("click", () => {
+  void changePage({ page: returnPage });
 });
 exit.addEventListener("click", () => endSession("已退出审查。"));
 window.addEventListener("pagehide", () => endSession("", false));

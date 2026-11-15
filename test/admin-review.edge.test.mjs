@@ -335,6 +335,50 @@ test("list forwards the exact RPC and passes its payload through", async (t) => 
   assert.equal(empty.status, 200);
 });
 
+test("browse forwards a page, a literal search, and an exact question location", async (t) => {
+  const handler = await loadEndpoint(t);
+  const payload = { page: 3, total_pages: 4, total_count: 44, questions: [], matches: [] };
+  const calls = recordFetch(t, () => Response.json(payload));
+  const authorization = `Bearer ${liveSession()}`;
+  const cases = [
+    [{ page: 3 }, { p_page: 3, p_query: null, p_external_id: null }],
+    [{ page: 2_147_483_647, query: null }, { p_page: 2_147_483_647, p_query: null, p_external_id: null }],
+    [{ page: 1, query: "  枯叶 %_ ", external_id: null }, { p_page: 1, p_query: "枯叶 %_", p_external_id: null }],
+    [{ page: 1, external_id: " Q-030 " }, { p_page: 1, p_query: null, p_external_id: "Q-030" }],
+  ];
+  for (const [body, rpcArgs] of cases) {
+    const response = await request(handler, { action: "browse", ...body }, { authorization });
+    const call = calls.at(-1);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), payload);
+    assert.equal(call.url.href, `${supabaseUrl}/rest/v1/rpc/browse_staff_review_questions`);
+    assert.equal(call.init.method, "POST");
+    assert.deepEqual(JSON.parse(call.init.body), rpcArgs);
+  }
+  assert.equal(calls.length, cases.length);
+});
+
+test("browse rejects unauthorized or invalid requests before reaching the database", async (t) => {
+  const handler = await loadEndpoint(t);
+  const calls = recordFetch(t);
+  const unauthorized = await request(handler, { action: "browse", page: 1, query: "枯叶" });
+  assert.equal(unauthorized.status, 401);
+  const authorization = `Bearer ${liveSession()}`;
+  for (const body of [
+    {}, { page: null }, { page: "1" }, { page: 0 }, { page: -1 }, { page: 1.5 }, { page: 2_147_483_648 },
+    { page: 1, query: 7 }, { page: 1, query: "  " }, { page: 1, query: "枯\0叶" },
+    { page: 1, query: "\uD800" }, { page: 1, query: "字".repeat(201) },
+    { page: 1, external_id: [] }, { page: 1, external_id: "\t" }, { page: 1, external_id: "Q\0" },
+    { page: 1, external_id: "A".repeat(201) }, { page: 1, query: "枯叶", external_id: "Q-030" },
+  ]) {
+    const response = await request(handler, { action: "browse", ...body }, { authorization });
+    assert.equal(response.status, 400, JSON.stringify(body));
+    assert.deepEqual(await response.json(), { message: invalidMessage });
+  }
+  assert.equal(calls.length, 0);
+});
+
 test("rate forwards validated versions and qualities, and rejects the rest", async (t) => {
   const handler = await loadEndpoint(t);
   const calls = recordFetch(t, () => Response.json({ ok: true }));
@@ -385,6 +429,8 @@ test("backend failures map to stable responses without leaking details", async (
   const handler = await loadEndpoint(t);
   const replies = [
     () => Response.json({ code: "PT404", message: "question version retired" }, { status: 404 }),
+    () => Response.json({ code: "PT404", message: "question not visible" }, { status: 404 }),
+    () => Response.json({ code: "PT400", message: "invalid query" }, { status: 400 }),
     () => Response.json({ code: "XX000", message: "internal details" }, { status: 500 }),
     () => { throw new Error("connection reset"); },
   ];
@@ -399,6 +445,14 @@ test("backend failures map to stable responses without leaking details", async (
   assert.equal(retired.status, 404);
   assert.equal(retired.headers.get("cache-control"), "no-store");
   assert.deepEqual(await retired.json(), { message: "题目版本已不可用。" });
+
+  const missing = await request(handler, { action: "browse", page: 1, external_id: "Q-030" }, { authorization });
+  assert.equal(missing.status, 404);
+  assert.deepEqual(await missing.json(), { message: "题目版本已不可用。" });
+
+  const invalid = await request(handler, { action: "browse", page: 1, query: "枯叶" }, { authorization });
+  assert.equal(invalid.status, 400);
+  assert.deepEqual(await invalid.json(), { message: invalidMessage });
 
   const broken = await request(handler, { action: "list", after: null }, { authorization });
   assert.equal(broken.status, 503);
@@ -431,25 +485,26 @@ test("the reviewer session never authenticates or writes participant state", asy
   const authorization = `Bearer ${liveSession()}`;
 
   await request(handler, { action: "list", after: null }, { authorization });
+  await request(handler, { action: "browse", page: 1 }, { authorization });
   await request(handler, {
     action: "rate",
     question_version_id: questionVersionId,
     quality: "high",
   }, { authorization });
 
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
   for (const { url, init } of calls) {
     assert.equal(url.origin, new URL(supabaseUrl).origin);
     assert.match(
       url.pathname,
-      /^\/rest\/v1\/rpc\/(?:list_staff_review_questions|save_staff_question_rating)$/,
+      /^\/rest\/v1\/rpc\/(?:list_staff_review_questions|browse_staff_review_questions|save_staff_question_rating)$/,
     );
     assert.notEqual(url.pathname, "/auth/v1/user");
 
     const body = JSON.parse(init.body);
     assert.ok(
       Object.keys(body).every((key) =>
-        key === "p_after_external_id" || key === "p_question_version_id" || key === "p_quality"
+        ["p_after_external_id", "p_page", "p_query", "p_external_id", "p_question_version_id", "p_quality"].includes(key)
       ),
       `unexpected RPC argument in ${init.body}`,
     );
