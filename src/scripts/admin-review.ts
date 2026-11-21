@@ -16,8 +16,19 @@ type Question = {
 type Match = { external_id: string; stem: string; matched_option: string | null };
 type Page = { page: number; total_pages: number; total_count: number; questions: Question[]; matches: Match[] };
 type Browse = { page: number; query?: string; external_id?: string };
+type HistoryCounts = Record<Quality, number>;
+type Feedback = {
+  external_id: string;
+  version_no: number;
+  low_count: number;
+  high_count: number;
+  comment_count: number;
+  comments: { text: string; submitted_at: string }[];
+  historical: { explicit: HistoryCounts; default: HistoryCounts; legacy: HistoryCounts };
+};
 type StaffRequest = { action: "login"; key: string } | ({ action: "browse" } & Browse) |
-  { action: "rate"; question_version_id: string; quality: string };
+  { action: "rate"; question_version_id: string; quality: string } |
+  { action: "student-feedback"; external_id: string; version_no: number };
 
 function element<T extends HTMLElement>(id: string) {
   return document.getElementById(id) as T;
@@ -54,6 +65,35 @@ const previousButtons = ["staff-prev", "staff-bottom-prev"].map(element<HTMLButt
 const nextButtons = ["staff-next", "staff-bottom-next"].map(element<HTMLButtonElement>);
 const bottomPager = element("staff-bottom-pager");
 const exit = element<HTMLButtonElement>("staff-exit");
+const feedbackSection = element("staff-feedback");
+const feedbackTitle = element("staff-feedback-title");
+const feedbackForm = element<HTMLFormElement>("staff-feedback-form");
+const feedbackId = element<HTMLInputElement>("staff-feedback-id");
+const feedbackVersion = element<HTMLInputElement>("staff-feedback-version");
+const feedbackLoad = element<HTMLButtonElement>("staff-feedback-load");
+const feedbackStatus = element("staff-feedback-status");
+const feedbackResult = element("staff-feedback-result");
+const feedbackLow = element("staff-feedback-low");
+const feedbackHigh = element("staff-feedback-high");
+const feedbackCommentCount = element("staff-feedback-comment-count");
+const feedbackComments = element("staff-feedback-comments");
+const historyGroups: Record<keyof Feedback["historical"], Record<Quality, HTMLElement>> = {
+  explicit: {
+    low: element("staff-history-explicit-low"),
+    medium: element("staff-history-explicit-medium"),
+    high: element("staff-history-explicit-high"),
+  },
+  default: {
+    low: element("staff-history-default-low"),
+    medium: element("staff-history-default-medium"),
+    high: element("staff-history-default-high"),
+  },
+  legacy: {
+    low: element("staff-history-legacy-low"),
+    medium: element("staff-history-legacy-medium"),
+    high: element("staff-history-legacy-high"),
+  },
+};
 const qualityLabels: Record<Quality, string> = { low: "低", medium: "中", high: "高" };
 
 let session: Session | null = null;
@@ -64,6 +104,7 @@ let activeQuery = "";
 let returnPage = 1;
 let loading = false;
 let pendingRatings = 0;
+let feedbackRequest = 0;
 
 async function request<T>(body: StaffRequest, token?: string): Promise<T> {
   if (!PUBLIC_SUPABASE_URL || !PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
@@ -91,9 +132,30 @@ function errorText(error: unknown) {
   return error instanceof ReviewError ? error.message : "连接失败，请重试。";
 }
 
+function clearFeedbackResult() {
+  feedbackResult.hidden = true;
+  feedbackComments.replaceChildren();
+  for (const count of [feedbackLow, feedbackHigh, feedbackCommentCount,
+    ...Object.values(historyGroups).flatMap(Object.values)]) count.textContent = "";
+}
+
+function setFeedbackBusy(busy: boolean) {
+  feedbackLoad.disabled = feedbackId.readOnly = feedbackVersion.readOnly = busy;
+}
+
+function resetFeedback() {
+  feedbackRequest += 1;
+  feedbackForm.reset();
+  setFeedbackBusy(false);
+  feedbackVersion.removeAttribute("aria-invalid");
+  feedbackStatus.textContent = "";
+  clearFeedbackResult();
+}
+
 function endSession(message: string, focus = true) {
   window.clearTimeout(expiry);
   session = null;
+  resetFeedback();
   questions.replaceChildren();
   matches.replaceChildren();
   searchInput.value = "";
@@ -190,6 +252,14 @@ function renderQuestion(question: Question, authorized: Session) {
       }
     }
   });
+  card.querySelector<HTMLButtonElement>("[data-staff-feedback-button]")!.addEventListener("click", () => {
+    if (session !== authorized) return;
+    feedbackId.value = question.external_id;
+    feedbackVersion.value = String(question.version_no);
+    feedbackVersion.removeAttribute("aria-invalid");
+    feedbackSection.scrollIntoView({ block: "start" });
+    void loadFeedback(true);
+  });
   return card;
 }
 
@@ -259,6 +329,87 @@ async function changePage(target: Browse) {
     }
   }
 }
+
+function renderFeedback(data: Feedback) {
+  feedbackLow.textContent = String(data.low_count);
+  feedbackHigh.textContent = String(data.high_count);
+  feedbackCommentCount.textContent = String(data.comment_count);
+  for (const group of ["explicit", "default", "legacy"] as const) {
+    for (const level of ["low", "medium", "high"] as const) {
+      historyGroups[group][level].textContent = String(data.historical[group][level]);
+    }
+  }
+  feedbackComments.replaceChildren(...data.comments.map((comment) => {
+    const item = document.createElement("li");
+    const text = document.createElement("p");
+    text.className = "staff-feedback-text";
+    text.textContent = comment.text;
+    const time = document.createElement("time");
+    const parsed = new Date(comment.submitted_at);
+    if (Number.isNaN(parsed.getTime())) {
+      time.textContent = comment.submitted_at;
+    } else {
+      time.dateTime = parsed.toISOString();
+      time.textContent = parsed.toLocaleString("zh-CN", { hour12: false });
+    }
+    item.append(text, time);
+    return item;
+  }));
+  feedbackResult.hidden = false;
+}
+
+async function loadFeedback(moveFocus = false) {
+  const authorized = session;
+  if (!authorized) return;
+  clearFeedbackResult();
+  const external_id = feedbackId.value.trim();
+  const version_no = feedbackVersion.valueAsNumber;
+  if (!external_id) {
+    feedbackStatus.textContent = "请输入题目编号。";
+    feedbackId.focus();
+    return;
+  }
+  if (!Number.isInteger(version_no) || version_no < 1 || version_no > 2_147_483_647) {
+    feedbackStatus.textContent = "版本号需为不小于 1 的整数。";
+    feedbackVersion.setAttribute("aria-invalid", "true");
+    feedbackVersion.focus();
+    return;
+  }
+  feedbackVersion.removeAttribute("aria-invalid");
+  const requestId = ++feedbackRequest;
+  setFeedbackBusy(true);
+  feedbackStatus.textContent = "正在加载学生反馈…";
+  try {
+    const data = await request<Feedback>({ action: "student-feedback", external_id, version_no }, authorized.token);
+    if (session !== authorized || requestId !== feedbackRequest) return;
+    const historyTotal = (["explicit", "default", "legacy"] as const)
+      .reduce((sum, group) => sum + data.historical[group].low + data.historical[group].medium +
+        data.historical[group].high, 0);
+    if (data.low_count + data.high_count + data.comment_count + historyTotal === 0) {
+      feedbackStatus.textContent = `${data.external_id} 第 ${data.version_no} 版暂无学生反馈。`;
+      return;
+    }
+    renderFeedback(data);
+    feedbackStatus.textContent = `已加载 ${data.external_id} 第 ${data.version_no} 版的学生反馈。`;
+    if (moveFocus) feedbackTitle.focus();
+  } catch (error) {
+    if (session === authorized && requestId === feedbackRequest) reportError(error, feedbackStatus);
+  } finally {
+    if (session === authorized && requestId === feedbackRequest) {
+      setFeedbackBusy(false);
+    }
+  }
+}
+
+feedbackForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void loadFeedback();
+});
+feedbackForm.addEventListener("input", () => {
+  feedbackVersion.removeAttribute("aria-invalid");
+  feedbackStatus.textContent = "";
+  clearFeedbackResult();
+});
 
 login.addEventListener("submit", async (event) => {
   event.preventDefault();

@@ -86,6 +86,48 @@ const base = import.meta.env.BASE_URL;
           <button id="staff-bottom-prev" class="secondary-button" type="button" disabled>上一页</button>
           <button id="staff-bottom-next" class="secondary-button" type="button" disabled>下一页</button>
         </nav>
+
+        <section id="staff-feedback" class="staff-feedback" aria-labelledby="staff-feedback-title">
+          <h3 id="staff-feedback-title" tabindex="-1">学生反馈</h3>
+          <form id="staff-feedback-form" class="staff-feedback-form" novalidate>
+            <div class="staff-field">
+              <label for="staff-feedback-id">题目编号</label>
+              <input id="staff-feedback-id" class="staff-input" type="text" maxlength="200"
+                placeholder="输入题目编号" autocomplete="off" required />
+            </div>
+            <div class="staff-field">
+              <label for="staff-feedback-version">版本号</label>
+              <input id="staff-feedback-version" class="staff-input" type="number" min="1" step="1"
+                inputmode="numeric" aria-label="题目版本号" required />
+            </div>
+            <button id="staff-feedback-load" class="primary-button" type="submit">查看反馈</button>
+          </form>
+          <p id="staff-feedback-status" class="staff-status" role="status" aria-live="polite"></p>
+          <div id="staff-feedback-result" class="staff-feedback-result" hidden>
+            <p class="staff-feedback-summary">
+              低 <span id="staff-feedback-low">0</span> 票 · 高 <span id="staff-feedback-high">0</span> 票
+              · 文字意见 <span id="staff-feedback-comment-count">0</span> 条
+            </p>
+            <dl id="staff-feedback-history" class="staff-feedback-history">
+              <div class="staff-feedback-history-row">
+                <dt>旧版主动评价</dt>
+                <dd>低 <span id="staff-history-explicit-low">0</span> · 中 <span id="staff-history-explicit-medium">0</span>
+                  · 高 <span id="staff-history-explicit-high">0</span></dd>
+              </div>
+              <div class="staff-feedback-history-row">
+                <dt>旧版默认评价</dt>
+                <dd>低 <span id="staff-history-default-low">0</span> · 中 <span id="staff-history-default-medium">0</span>
+                  · 高 <span id="staff-history-default-high">0</span></dd>
+              </div>
+              <div class="staff-feedback-history-row">
+                <dt>旧版历史评价（legacy）</dt>
+                <dd>低 <span id="staff-history-legacy-low">0</span> · 中 <span id="staff-history-legacy-medium">0</span>
+                  · 高 <span id="staff-history-legacy-high">0</span></dd>
+              </div>
+            </dl>
+            <ul id="staff-feedback-comments" class="staff-feedback-comments"></ul>
+          </div>
+        </section>
       </section>
     </main>
 
@@ -125,6 +167,10 @@ const base = import.meta.env.BASE_URL;
             <p class="quality-feedback" data-staff-rating-status role="status" aria-live="polite"></p>
           </fieldset>
         </form>
+
+        <div class="staff-card-actions">
+          <button type="button" class="secondary-button" data-staff-feedback-button>查看学生反馈</button>
+        </div>
       </article>
     </template>
 

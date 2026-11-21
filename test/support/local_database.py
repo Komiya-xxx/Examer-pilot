@@ -1,10 +1,10 @@
 """Shared helpers for Python tests that need the local PostgreSQL database."""
 
 import os
+import re
 import subprocess
 import unittest
 
-CONTAINER = "supabase_db_examerframe"
 PIPE = "npipe:////./pipe/docker_engine"
 SOCKET = "unix:///var/run/docker.sock"
 
@@ -16,6 +16,10 @@ class LocalDatabase:
         self.wsl_distro = wsl_distro
         self.platform = platform
         self.environ = dict(os.environ if environ is None else environ)
+        project = self.environ.get("EXAMERFRAME_TEST_PROJECT_ID", "examerframe")
+        if not re.fullmatch(r"examerframe(?:_[a-z0-9_]+)?", project):
+            raise ValueError("Use an isolated local ExamerFrame project")
+        self.container = "supabase_db_" + project
 
     def command(self):
         if self.wsl_distro:
@@ -27,7 +31,7 @@ class LocalDatabase:
         # Disabling the Docker context keeps requests on that exact local endpoint.
         self.environ.pop("DOCKER_CONTEXT", None)
         return [
-            *docker, "--host", host, "exec", "-i", CONTAINER,
+            *docker, "--host", host, "exec", "-i", self.container,
             "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1",
         ]
 
@@ -46,7 +50,7 @@ class LocalDatabase:
         result = self.run(sql)
         if result.returncode != 0:
             raise AssertionError(
-                f"Local SQL failed in {CONTAINER}: {result.stderr.decode('utf-8', 'replace')}"
+                f"Local SQL failed in {self.container}: {result.stderr.decode('utf-8', 'replace')}"
             )
         return [line.split("|") for line in result.stdout.decode("utf-8").splitlines() if line]
 

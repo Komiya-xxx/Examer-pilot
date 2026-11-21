@@ -1,3 +1,3 @@
-import { participantEndpoint, readAnswerBody } from "../_shared/participant.ts";
+import { legacyParticipantWriteEndpoint } from "../_shared/participant.ts";
 
-Deno.serve(participantEndpoint("POST", "submit_review_answer_for_participant", readAnswerBody));
+Deno.serve(legacyParticipantWriteEndpoint());

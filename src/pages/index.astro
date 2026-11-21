@@ -1,10 +1,16 @@
 ---
-import { EXAMERFRAME_PRIVACY_RETENTION, EXAMERFRAME_PRIVACY_CONTACT } from "astro:env/server";
+import {
+  EXAMERFRAME_PRIVACY_RETENTION,
+  EXAMERFRAME_PRIVACY_CONTACT,
+  EXAMERFRAME_ACCOUNT_RETENTION,
+  EXAMERFRAME_STUDY_RETENTION,
+  EXAMERFRAME_OPINION_RETENTION,
+} from "astro:env/server";
 import "../styles/participant.css";
 
-const retention = EXAMERFRAME_PRIVACY_RETENTION?.trim();
 const contact = EXAMERFRAME_PRIVACY_CONTACT?.trim();
-const contactEmail = contact?.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/)?.[0];
+const contactEmail = contact?.match(/^[\w.+-]+@[\w-]+(?:\.[\w-]+)+$/)?.[0];
+const retention = EXAMERFRAME_PRIVACY_RETENTION?.trim() ?? "试点结束后 30 天内删除匿名答题记录。";
 const base = import.meta.env.BASE_URL;
 ---
 <!doctype html>
@@ -12,163 +18,192 @@ const base = import.meta.env.BASE_URL;
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="法医病理学复习练习：自由选题，作答后查看答案与解析。" />
+    <meta name="description" content="法医病理学复习练习。选题作答、查看解析，跨设备继续复习。" />
     <title>法医病理学</title>
   </head>
   <body>
-    <main class="quiz-shell">
+    <main class="quiz-shell student-shell">
       <header class="quiz-hero">
         <h1>法医病理学</h1>
-        <div class="type-menu" role="group" aria-label="题型">
-          <button type="button" data-practice-type="choice" aria-pressed="true">选择题</button>
-          <button type="button" data-practice-type="fill" aria-pressed="false">填空题</button>
-          <button type="button" data-practice-type="true-false" aria-pressed="false">判断题</button>
-          <button type="button" data-practice-type="term" aria-pressed="false">名词解释</button>
-          <button type="button" data-practice-type="updates" aria-pressed="false">更新中</button>
-        </div>
-        <p id="type-status" role="status"></p>
+        <p class="student-hero-description">选择题与判断题复习</p>
       </header>
 
-      <section id="saved-session" class="session-strip" aria-labelledby="session-title" hidden>
-        <div class="session-summary">
-          <h2 id="session-title">答题进度</h2>
-          <p id="session-progress"></p>
-          <button id="next-set" class="secondary-button" type="button" hidden>换一组题</button>
-        </div>
-        <ol id="question-map" class="question-map" aria-label="题目进度"></ol>
-        <p id="next-set-status" role="status"></p>
-      </section>
-
-      <div id="status-card" class="status-card">
-        <p id="lobby-status" role="status">正在准备复习题单…</p>
-        <button id="enter-lobby" class="secondary-button" type="button" hidden>重试</button>
-        <noscript>请启用 JavaScript 以匿名参与。</noscript>
-      </div>
-
-      <article id="current-question" class="question-card" aria-labelledby="question-progress" hidden>
-        <div class="question-heading">
-          <h2 id="question-progress" tabindex="-1"></h2>
-          <p id="question-type" class="question-type"></p>
-        </div>
-        <p id="question-stem" class="question-stem"></p>
-
-        <form id="answer-form" novalidate>
-          <div class="answer-content">
-            <fieldset id="answer-options">
-              <legend class="visually-hidden">选择答案</legend>
-              <ol id="question-options" class="choice-list"></ol>
-            </fieldset>
-            <ol id="review-options" class="choice-list" aria-label="已作答题目的选项" hidden></ol>
-
-            <section id="answer-review" class="answer-review" aria-labelledby="answer-verdict" hidden>
-              <h3 id="answer-verdict" tabindex="-1" role="status"></h3>
-              <h4 class="answer-review-label">标准答案</h4>
-              <p id="standard-answer"></p>
-              <h4 class="answer-review-label">解析</h4>
-              <p id="answer-explanation"></p>
-              <h4 class="answer-review-label">你的选择</h4>
-              <p id="saved-answer"></p>
-            </section>
+      <section id="student-auth" class="student-panel" aria-labelledby="student-auth-title">
+        <h2 id="student-auth-title">学生登录</h2>
+        <p>用自定账户名和密码参加试点。登录后可以在不同设备找回复习进度和错题。</p>
+        <form id="student-auth-form" method="post">
+          <div class="student-field">
+            <label for="student-username">账户名</label>
+            <input id="student-username" type="text" autocomplete="username" autocapitalize="off"
+              spellcheck="false" maxlength="64" required />
           </div>
-
-          <div class="question-side">
-            <fieldset id="rating-options" class="quality-panel" aria-describedby="quality-purpose quality-feedback" hidden>
-              <legend>题目整体质量 <span class="quality-optional">（可选）</span></legend>
-              <p id="quality-purpose" class="quality-purpose">您的评价将会改善后续的题目质量</p>
-              <div class="quality-choices">
-                <label class="quality-choice"><input type="radio" name="quality" value="low" /> <span>低</span></label>
-                <label class="quality-choice"><input type="radio" name="quality" value="medium" /> <span>中</span></label>
-                <label class="quality-choice"><input type="radio" name="quality" value="high" /> <span>高</span></label>
-              </div>
-              <p id="quality-feedback" class="quality-feedback" role="status">不选时按「中」记录。</p>
-              <div class="quality-actions">
-                <button id="save-rating" class="secondary-button" type="button" disabled>保存评价</button>
-              </div>
-            </fieldset>
-
-            <div class="question-actions">
-              <button id="submit-answer" class="primary-button" type="submit" disabled>提交答案</button>
-              <p id="question-status" role="status"></p>
-            </div>
+          <div class="student-field">
+            <label for="student-password">密码</label>
+            <input id="student-password" type="password" autocomplete="current-password" maxlength="72" required />
+          </div>
+          <p id="student-auth-help" hidden>账户名 3–32 个字符。密码至少 8 个字符、最多 72 字节。</p>
+          <div class="student-actions">
+            <button id="student-auth-submit" class="primary-button" type="submit" disabled>登录</button>
+            <button id="student-auth-switch" class="secondary-button" type="button" disabled>注册新账户</button>
+            <button id="student-reconnect" class="secondary-button" type="button" hidden>重试恢复会话</button>
           </div>
         </form>
-      </article>
+        <p id="student-auth-status" role="status"></p>
+        <noscript>请启用 JavaScript 后登录。</noscript>
+      </section>
+
+      <section id="student-practice" class="student-practice" aria-labelledby="student-practice-title" hidden>
+        <div class="student-panel student-account">
+          <div>
+            <h2 id="student-practice-title" tabindex="-1">复习</h2>
+            <p>账户 <strong id="student-account-name"></strong></p>
+            <p class="student-account-id">账户 ID <code id="student-account-id"></code></p>
+          </div>
+          <button id="student-sign-out" class="secondary-button" type="button">退出登录</button>
+        </div>
+
+        <div class="student-panel student-nav">
+          <div class="student-actions" role="group" aria-label="复习范围">
+            <button id="student-catalog" class="secondary-button" type="button" aria-pressed="true">全部题目</button>
+            <button id="student-history" class="secondary-button" type="button" aria-pressed="false">我的作答</button>
+            <button id="student-mistakes" class="secondary-button" type="button" aria-pressed="false">我的错题</button>
+          </div>
+
+          <form id="student-search-form" class="student-inline-form" role="search" aria-label="搜索题目">
+            <div class="student-field">
+              <label for="student-search">搜索题目</label>
+              <input id="student-search" type="search" maxlength="200" placeholder="输入题号、题干或选项文字" />
+            </div>
+            <button class="primary-button" type="submit">搜索</button>
+            <button id="student-clear-search" class="secondary-button" type="button" hidden>清除搜索</button>
+          </form>
+
+          <nav class="student-pager" aria-label="分页">
+            <button id="student-prev" class="secondary-button" type="button" disabled>上一页</button>
+            <p id="student-page"></p>
+            <button id="student-next" class="secondary-button" type="button" disabled>下一页</button>
+            <form id="student-jump-form" class="student-jump" novalidate>
+              <label for="student-jump-page">页码</label>
+              <input id="student-jump-page" type="number" min="1" step="1" inputmode="numeric" required />
+              <button class="secondary-button" type="submit">跳转</button>
+            </form>
+          </nav>
+          <p id="student-browse-status" role="status"></p>
+          <button id="student-browse-retry" class="secondary-button" type="button" hidden>重试载入</button>
+        </div>
+
+        <section id="student-summary" class="student-panel student-summary" aria-labelledby="student-summary-title" hidden>
+          <h3 id="student-summary-title">本页小结</h3>
+          <dl class="student-stats">
+            <div><dt>已答</dt><dd id="student-answered">0</dd></div>
+            <div><dt>答对</dt><dd id="student-correct">0</dd></div>
+            <div><dt>答错</dt><dd id="student-wrong-count">0</dd></div>
+            <div><dt>暂不可判</dt><dd id="student-ungraded">0</dd></div>
+            <div><dt>未答</dt><dd id="student-unanswered">0</dd></div>
+            <div><dt>正确率</dt><dd id="student-accuracy">暂无可判分题</dd></div>
+          </dl>
+          <label class="student-filter"><input id="student-wrong-only" type="checkbox" />只看错题</label>
+        </section>
+
+        <section id="student-search-results" class="student-panel" aria-labelledby="student-results-title" hidden>
+          <h3 id="student-results-title" tabindex="-1">搜索结果</h3>
+          <ul id="student-matches"></ul>
+        </section>
+        <p id="student-filter-status" role="status" hidden>本页还没有错题。</p>
+        <div id="student-questions" class="student-questions" aria-label="题目"></div>
+        <nav id="student-bottom-pager" class="student-pager" aria-label="页尾分页" hidden>
+          <button id="student-bottom-prev" class="secondary-button" type="button" disabled>上一页</button>
+          <button id="student-bottom-next" class="secondary-button" type="button" disabled>下一页</button>
+        </nav>
+      </section>
+
+      <footer class="student-footer">
+        <button id="show-privacy" class="secondary-button" type="button">试点说明与隐私</button>
+        <a href={base + "admin-review/"}>审查入口</a>
+      </footer>
     </main>
 
+    <template id="student-question-template">
+      <article class="question-card student-question">
+        <header class="student-question-heading">
+          <h3 data-identifier tabindex="-1"></h3>
+          <p data-question-type class="question-type"></p>
+        </header>
+        <p data-stem class="question-stem"></p>
+        <form data-answer-form>
+          <fieldset data-answer-options>
+            <legend class="visually-hidden">选择答案</legend>
+            <ol class="choice-list" data-options></ol>
+          </fieldset>
+          <div class="student-actions">
+            <button data-submit-answer class="primary-button" type="submit" disabled>提交答案</button>
+          </div>
+        </form>
+        <div data-review-panel hidden>
+          <ol class="student-saved-options" data-saved-options></ol>
+          <div class="student-actions" data-review-actions hidden>
+            <button data-open-review class="secondary-button" type="button">查看错题详情</button>
+            <button data-start-retry class="secondary-button" type="button" hidden>遮住答案再练一次</button>
+            <button data-cancel-retry class="secondary-button" type="button" hidden>取消复练</button>
+          </div>
+          <section data-verdict-panel class="answer-review" aria-label="答案与解析" hidden>
+            <h4 data-verdict></h4>
+            <dl class="student-answer-detail">
+              <div><dt>首次选择</dt><dd data-saved-answer></dd></div>
+              <div><dt>标准答案</dt><dd data-standard-answer></dd></div>
+              <div><dt>解析</dt><dd data-explanation></dd></div>
+            </dl>
+            <p data-review-time class="student-record"></p>
+            <p data-retry-result class="student-record"></p>
+          </section>
+          <section data-feedback class="student-feedback" aria-label="题目反馈" hidden>
+            <div class="student-actions">
+              <h4>题目质量</h4>
+              <button data-rating="low" class="secondary-button" type="button">低</button>
+              <button data-rating="high" class="secondary-button" type="button">高</button>
+              <span data-saved-rating></span>
+            </div>
+            <form data-comment-form novalidate>
+              <label class="student-field">
+                反馈意见（可选）
+                <textarea data-comment-input rows="3" maxlength="2000"></textarea>
+              </label>
+              <button class="secondary-button" type="submit">提交意见</button>
+            </form>
+            <p data-saved-comment class="student-comment" hidden></p>
+            <p data-feedback-status role="status"></p>
+          </section>
+        </div>
+        <p data-answer-status role="status"></p>
+      </article>
+    </template>
+
     <dialog id="privacy" class="notice-dialog" aria-labelledby="privacy-title">
-      <p class="notice-kicker">参与前，请了解</p>
-      <h2 id="privacy-title" tabindex="-1" autofocus>试点公告</h2>
+      <h2 id="privacy-title" autofocus>试点说明与隐私</h2>
       <div class="notice-content">
-        <h3>隐私说明</h3>
-        <p>页面打开后会尝试创建或恢复匿名会话，无需姓名、邮箱或手机号。我们保存匿名标识、你提交的答案和评价，以及提交时间。同一浏览器可恢复进度；清除浏览器数据或换设备后，原会话可能无法恢复。</p>
-        <h3>评价如何使用</h3>
-        <p>我们汇总评价，筛选适合后续正式题库的题目。评价也可能影响试点中的发放概率；未主动选择时，本题按「中」记录。</p>
-        <h3>保存期限与联系方式</h3>
-        {retention && contact ? (
-          <>
-            <p>数据保存期限：{retention}</p>
-            <p>隐私问题与数据删除：{contactEmail === contact ? <a href={`mailto:${contact}`}>{contact}</a> : contact}</p>
-          </>
+        <p>我们用账户名和账户 ID 识别登录，使用首答、错题、回看与复练记录恢复学习进度。自愿提交的等级和文字意见供授权编辑修订相应版本的题目。</p>
+        <p>注册无需姓名、邮箱或手机号。填写意见时请勿附上个人信息。</p>
+        <h3>资料保留</h3>
+        <ul class="student-retention">
+          <li>账户资料 {EXAMERFRAME_ACCOUNT_RETENTION?.trim() ?? "随本地测试账户清理。"}</li>
+          <li>学习记录 {EXAMERFRAME_STUDY_RETENTION?.trim() ?? "随本地测试账户清理。"}</li>
+          <li>等级与文字意见 {EXAMERFRAME_OPINION_RETENTION?.trim() ?? "随本地测试账户清理。"}</li>
+          <li>旧匿名记录 {retention}</li>
+        </ul>
+        <h3>删除途径</h3>
+        {contact ? (
+          <p>申请删除请附上账户 ID，并联系 {contactEmail ? <a href={"mailto:" + contactEmail}>{contactEmail}</a> : contact}。</p>
         ) : (
-          <p>本地测试环境。试点开放前将在此公布数据保存期限、联系方式与删除途径。</p>
+          <p>本地测试账户由测试环境的管理员清理。</p>
         )}
       </div>
       <form method="dialog" class="notice-actions">
-        <button id="dismiss-privacy" class="primary-button" type="submit">知道了，关闭公告</button>
+        <button class="primary-button" type="submit">关闭</button>
       </form>
     </dialog>
-
-    {contact && (
-      <footer class="contact-footer">
-        联系方式：{contactEmail ? <a href={`mailto:${contactEmail}`}>{contactEmail}</a> : contact}
-      </footer>
-    )}
-
-    <a class="staff-entry" href={`${base}admin-review/`}>审查入口</a>
 
     <script>
       import "../scripts/participant-lobby";
     </script>
-
-    <style>
-      .staff-entry {
-        position: fixed;
-        inset-block-end: max(0.75rem, env(safe-area-inset-bottom));
-        inset-inline-end: 0.85rem;
-        z-index: 10;
-        padding: 0.3rem 0.62rem;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        background-color: rgba(255, 255, 255, 0.86);
-        color: var(--ink-muted);
-        font-size: 0.72rem;
-        font-weight: 500;
-        letter-spacing: 0.02em;
-        line-height: 1.4;
-        text-decoration: none;
-        box-shadow: 0 8px 18px -16px rgba(18, 49, 44, 0.7);
-        transition: color 0.18s var(--ease), border-color 0.18s var(--ease),
-          background-color 0.18s var(--ease);
-      }
-
-      .staff-entry:hover,
-      .staff-entry:focus-visible {
-        border-color: var(--line-strong);
-        background-color: var(--paper);
-        color: var(--forest-800);
-      }
-
-      .staff-entry:focus-visible {
-        outline: 3px solid var(--focus);
-        outline-offset: 3px;
-      }
-
-      @media (max-width: 40rem) {
-        .staff-entry {
-          inset-block-end: max(0.6rem, env(safe-area-inset-bottom));
-          inset-inline-end: 0.6rem;
-        }
-      }
-    </style>
   </body>
 </html>

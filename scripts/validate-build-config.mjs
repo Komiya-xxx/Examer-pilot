@@ -28,5 +28,8 @@ requireConfig(/^sb_publishable_[a-z0-9_-]{12,}$/i.test(key) && key.startsWith("s
   "PUBLIC_SUPABASE_PUBLISHABLE_KEY", "provide the public project key.");
 requireConfig(env.EXAMERFRAME_PRIVACY_RETENTION?.trim(), "EXAMERFRAME_PRIVACY_RETENTION", "provide the approved retention text.");
 requireConfig(env.EXAMERFRAME_PRIVACY_CONTACT?.trim(), "EXAMERFRAME_PRIVACY_CONTACT", "provide the approved contact and deletion instructions.");
+for (const name of ["EXAMERFRAME_ACCOUNT_RETENTION", "EXAMERFRAME_STUDY_RETENTION", "EXAMERFRAME_OPINION_RETENTION"]) {
+  requireConfig(env[name]?.trim(), name, "provide the approved retention period for this data.");
+}
 
 console.log("Pages build configuration accepted.");

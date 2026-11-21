@@ -1,6 +1,6 @@
 # ExamerFrame
 
-法医病理学复习与题目评价试点。学生打开网址即可匿名领题，自由跳转；提交后看到对错、标准答案和解析。学生可以主动保存「低」「中」「高」来帮助筛选正式题库；未主动评价时按「中」保存，并单独标记为默认值。需求、范围与验收以 [PROJECT_SPEC.md](PROJECT_SPEC.md) 为准。
+法医病理学复习与题目评价试点。学生用自定账户名和密码登录，每页浏览 12 题，可以直接跳页、搜索并定位。个人作答、错题和复练结果随账户恢复。答题后可自愿提交低／高评价和文字意见。需求与验收见 [PROJECT_SPEC.md](PROJECT_SPEC.md) 的 v1.6 正文。
 
 ## 本地运行
 
@@ -11,7 +11,7 @@ npm ci
 npm run dev -- --host 127.0.0.1
 ```
 
-浏览器访问 `http://127.0.0.1:4321/`。首访会显示可关闭的试点公告。已配置本地 Supabase 时，页面会自动领题或恢复进度。停止开发服务器后，可执行类型检查、构建及自动化冒烟测试。
+浏览器访问 `http://127.0.0.1:4321/`。按 [.env.example](.env.example) 填写本地 Supabase 地址与 publishable key，即可注册或恢复会话。停止开发服务器后，可执行类型检查、构建及自动化冒烟测试。
 
 ```powershell
 npm run check
@@ -22,9 +22,28 @@ npm run preview -- --host 127.0.0.1
 
 `npm test` 检查 `dist/index.html` 与函数的来源策略，应在成功构建后运行。
 
-## 复习模式与首轮试点数据
+## v1.6 验收与切换
 
-复习页面使用 `get-review-session`、`submit-review-answer` 和 `submit-review-rating`，旧版的顺序作答接口保留。一组十题中提交任意六题即可点「换一组题」，也可以继续作答。换组会跳过本组未答的题，下一组避开本组发放的全部十题。普通刷新继续当前题单。答案和解析放在 `examerframe_private.question_feedback`，按既有题目版本关联；只有收到该参与者的有效作答才返回。缺少对应材料时显示「暂未提供」。
+本地使用 Supabase CLI 3.1.0 和 Docker Linux 引擎。在独立检出或复制的 `supabase/` 中，用以 `examerframe_` 开头的唯一 `project_id`，以及与开发环境错开的 API、数据库和 shadow 端口。启动后运行 `supabase test db`。如果启动时排除了 Edge Runtime，可用 `supabase functions serve --env-file <本地审查配置文件>` 启用。测试审查配置只需设置本地的 `EXAMERFRAME_STAFF_REVIEW_KEY`，使用 32 字节随机值的 Base64URL 编码。
+
+给 Astro 构建和浏览器测试提供隔离栈的公开 URL 与 publishable key，并在 `127.0.0.1:4321` 启动预览。在另一个 PowerShell 中运行下列命令。将项目 ID 改成上一步的值，Docker 直接运行在 Windows 或 Linux 上时可省略 WSL 变量。两个环境文件均应为本机测试配置。
+
+```powershell
+$env:EXAMERFRAME_TEST_PROJECT_ID = 'examerframe_v16_acceptance'
+$env:EXAMERFRAME_TEST_WSL_DISTRO = 'Ubuntu'
+node --env-file=.env.local --env-file=.env.staff-local test/browser.integration.mjs
+node test/staff-navigation.browser.mjs
+```
+
+浏览器验收会装载 25 道可见合成题和停发、退役、草稿样例，并在结束后清理本次数据。测试应连接到没有开放批次的隔离项目。管理页导航用例自带模拟后端。
+
+托管切换时，由有权限的操作者依次应用 `20261121000000` 至 `20261121000002`，部署 `student-auth`、`student-practice` 与更新后的 `admin-review`。保留 Auth 的邮箱密码认证供服务器生成的内部标识使用，关闭对外直接注册与匿名登录。发布 Pages 时一并切换六个旧写入口，旧页提交会收到刷新登录提示。学生首答与反馈按 Auth UUID、题目版本归档，旧题单与历史评价在原表中可追溯。
+
+Pages 构建变量需提供已批准的账户资料、学习记录、等级与文字意见保留期限，以及联系和删除途径。旧匿名答题记录适用试点结束后 30 天内删除的既有承诺。以上变量名见 [.env.example](.env.example)。已确认的删除申请可由管理员按账户 ID 删除对应 Auth 用户，数据库会级联删除该账户的学生记录。
+
+## 历史复习模式与首轮试点数据
+
+以下为 v1.5 的部署和验收记录，涉及匿名写入的集成命令适用于对应的旧版工作树。标准答案和解析仍保存在 `examerframe_private.question_feedback`，按确切题目版本关联。
 
 按题目版本统计质量时，用 `ratings.source = 'explicit'` 筛选主动评价；`default` 是未选择时的「中」，`legacy` 是无法区分来源的旧数据。主动选「中」仍计入主动评价。试点分发继续使用质量等级计算权重。
 
@@ -40,7 +59,7 @@ python scripts/prepare_review_backfill.py `
   --output-sql exports/forensic-pathology-review-backfill.sql
 ```
 
-以下各阶段的日期记录描述当时的旧版行为，复习模式以本节及项目规范为准。
+以下各阶段的日期记录描述当时的旧版行为。
 
 ## 实施计划
 

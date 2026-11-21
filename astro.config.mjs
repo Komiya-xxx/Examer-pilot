@@ -22,6 +22,9 @@ export default defineConfig({
     schema: {
       EXAMERFRAME_PRIVACY_RETENTION: envField.string({ context: "server", access: "public", optional: true }),
       EXAMERFRAME_PRIVACY_CONTACT: envField.string({ context: "server", access: "public", optional: true }),
+      EXAMERFRAME_ACCOUNT_RETENTION: envField.string({ context: "server", access: "public", optional: true }),
+      EXAMERFRAME_STUDY_RETENTION: envField.string({ context: "server", access: "public", optional: true }),
+      EXAMERFRAME_OPINION_RETENTION: envField.string({ context: "server", access: "public", optional: true }),
 
       // Optional locally to keep `npm run dev`/`npm run build` dependency-free;
       // the Pages workflow validates both before building.

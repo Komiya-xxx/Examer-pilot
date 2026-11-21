@@ -15,7 +15,8 @@ enabled = false
 
 [auth]
 site_url = "http://127.0.0.1:4321"
-enable_anonymous_sign_ins = true
+enable_signup = false
+enable_anonymous_sign_ins = false
 
 [auth.rate_limit]
 anonymous_users = 30
@@ -60,4 +61,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.admin-review]
+verify_jwt = false
+
+[functions.student-auth]
+verify_jwt = false
+
+[functions.student-practice]
 verify_jwt = false

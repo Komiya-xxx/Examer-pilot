@@ -18,11 +18,13 @@ function isPublicKey(key) {
 
 export function localDatabase(sql) {
   const distro = process.env.EXAMERFRAME_TEST_WSL_DISTRO;
+  const project = process.env.EXAMERFRAME_TEST_PROJECT_ID ?? "examerframe";
+  assert.match(project, /^examerframe(?:_[a-z0-9_]+)?$/, "Use an isolated local ExamerFrame project");
   const socket = process.platform === "win32" && !distro
     ? "npipe:////./pipe/docker_engine"
     : "unix:///var/run/docker.sock";
   const dockerArgs = [
-    "--host", socket, "exec", "-i", "supabase_db_examerframe",
+    "--host", socket, "exec", "-i", "supabase_db_" + project,
     "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres",
   ];
   const command = distro ? "wsl.exe" : "docker";

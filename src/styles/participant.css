@@ -1,7 +1,7 @@
 /* ==========================================================================
    ExamerFrame — participant quiz surface
-   One stylesheet for the anonymous quiz flow: forest hero, paper cards,
-   mint accents, compact progress, and an accessible notice dialog.
+   Shared page, question card, and dialog styles. The student catalogue
+   keeps the same visual language as the staff review page.
    ========================================================================== */
 
 :root {
@@ -1282,5 +1282,330 @@ button:disabled {
   .answer-review.play-feedback[data-result="incorrect"] {
     animation: none !important;
     transform: none !important;
+  }
+}
+
+/* Student catalogue ------------------------------------------------------- */
+
+.student-shell {
+  max-inline-size: 59rem;
+  padding-block-end: 1.5rem;
+}
+
+.student-hero-description {
+  margin-block-start: 0.55rem;
+  color: #d0e7df;
+}
+
+.student-panel {
+  padding: clamp(1rem, 2.6vw, 1.5rem);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  box-shadow: var(--shadow-card);
+}
+
+.student-panel h2,
+.student-panel h3 {
+  color: var(--forest-900);
+}
+
+#student-auth {
+  align-self: center;
+  inline-size: min(100%, 31rem);
+}
+
+#student-auth > p {
+  margin-block-start: 0.45rem;
+  color: var(--ink-soft);
+}
+
+#student-auth-form,
+.student-practice,
+.student-nav,
+.student-summary,
+.student-questions {
+  display: grid;
+  min-inline-size: 0;
+  gap: 0.85rem;
+}
+
+#student-auth-form {
+  margin-block-start: 1rem;
+}
+
+#student-auth-status:empty,
+#student-browse-status:empty,
+.student-question [role="status"]:empty,
+.student-record:empty {
+  display: none;
+}
+
+.student-actions,
+.student-inline-form,
+.student-pager,
+.student-jump,
+.student-footer,
+.student-account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.student-inline-form {
+  align-items: flex-end;
+}
+
+.student-inline-form .student-field {
+  flex: 1 1 14rem;
+}
+
+.student-account {
+  justify-content: space-between;
+}
+
+.student-account strong,
+.student-account code {
+  overflow-wrap: anywhere;
+}
+
+.student-account-id {
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+}
+
+.student-account code {
+  margin-inline-start: 0.25rem;
+}
+
+.student-field {
+  display: grid;
+  gap: 0.3rem;
+  min-inline-size: 0;
+  font-weight: 600;
+}
+
+.student-field :is(input, textarea),
+.student-jump input {
+  min-inline-size: 0;
+  inline-size: 100%;
+  min-block-size: 2.7rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.65rem;
+  background: var(--paper);
+  font-weight: 400;
+}
+
+.student-field textarea {
+  resize: vertical;
+}
+
+.student-field textarea:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.student-jump input {
+  inline-size: 4.7rem;
+}
+
+.student-nav [aria-pressed="true"],
+.student-feedback [aria-pressed="true"] {
+  border-color: var(--forest-700);
+  background: var(--mint-100);
+  color: var(--forest-900);
+}
+
+.student-pager p,
+.student-stats dd {
+  font-variant-numeric: tabular-nums;
+}
+
+.student-jump {
+  margin-inline-start: auto;
+}
+
+.student-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(6.3rem, 100%), 1fr));
+  gap: 0.55rem;
+}
+
+.student-stats > div {
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.6rem;
+  background: var(--mint-050);
+}
+
+.student-stats dt,
+.student-answer-detail dt {
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.student-stats dd {
+  color: var(--forest-900);
+  font-weight: 700;
+}
+
+.student-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  inline-size: fit-content;
+}
+
+.student-filter input,
+.choice-option input {
+  flex: none;
+  inline-size: 1.15rem;
+  block-size: 1.15rem;
+  accent-color: var(--forest-700);
+}
+
+#student-matches {
+  display: grid;
+  gap: 0.55rem;
+  margin-block-start: 0.6rem;
+}
+
+.student-match {
+  display: grid;
+  inline-size: 100%;
+  gap: 0.2rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: var(--mint-050);
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.student-match:hover {
+  border-color: var(--forest-700);
+}
+
+.student-match span {
+  font-size: 0.9rem;
+}
+
+.student-questions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.student-question {
+  display: grid;
+  gap: 0.75rem;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.student-question-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+}
+
+.student-question-heading h3 {
+  color: var(--forest-900);
+  scroll-margin-block-start: 0.9rem;
+}
+
+.student-question-heading h3:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.student-question .question-stem {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.student-question form,
+.student-question [data-review-panel] {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.choice-option {
+  display: flex;
+  min-block-size: 2.75rem;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  cursor: pointer;
+  white-space: pre-wrap;
+}
+
+.choice-option:has(input:checked) {
+  border-color: var(--forest-700);
+  background: var(--mint-050);
+}
+
+.student-saved-options {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+}
+
+.student-question .answer-review {
+  margin: 0;
+}
+
+.student-question [data-result="correct"] {
+  color: var(--forest-700);
+}
+
+.student-question [data-result="wrong"] {
+  color: #8c3833;
+}
+
+.student-answer-detail {
+  display: grid;
+  gap: 0.55rem;
+  margin-block-start: 0.6rem;
+  white-space: pre-wrap;
+}
+
+.student-record {
+  margin-block-start: 0.55rem;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+.student-feedback {
+  display: grid;
+  gap: 0.65rem;
+  padding-block-start: 0.7rem;
+  border-block-start: 1px solid var(--line);
+}
+
+.student-feedback form > button {
+  justify-self: start;
+}
+
+.student-comment {
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.55rem;
+  background: var(--mint-050);
+  white-space: pre-wrap;
+}
+
+.student-footer {
+  justify-content: space-between;
+  padding-block-start: 0.4rem;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 37rem) {
+  .student-jump {
+    margin-inline-start: 0;
   }
 }

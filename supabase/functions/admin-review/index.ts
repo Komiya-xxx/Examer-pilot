@@ -94,6 +94,12 @@ Deno.serve(async (request: Request) => {
   } else if (body.action === "rate" && isUuid(body.question_version_id) && qualities.has(body.quality)) {
     rpc = "save_staff_question_rating";
     args = { p_question_version_id: body.question_version_id, p_quality: body.quality };
+  } else if (body.action === "student-feedback") {
+    const externalId = browseText(body.external_id);
+    const versionNo = body.version_no;
+    if (!externalId || !Number.isInteger(versionNo) || versionNo < 1 || versionNo > maxPageNumber) return invalid();
+    rpc = "get_staff_student_feedback";
+    args = { p_external_id: externalId, p_version_no: versionNo };
   } else {
     return invalid();
   }

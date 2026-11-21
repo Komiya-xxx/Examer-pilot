@@ -4,17 +4,10 @@ type Method = "GET" | "POST";
 // Browser-facing copy of the fixed write window the database enforces, sent as
 // Retry-After so a denied client can wait out the current window.
 const WRITE_RETRY_AFTER_SECONDS = 60;
-// A typed answer, as accepted by the answer submission RPC. Participant identity
-// is not part of this type: it is always added by participantEndpoint from the
-// verified anonymous session and cannot be supplied by a caller.
+// Participant identity is supplied by participantEndpoint after Auth verification.
 export type ParticipantAnswer = string | string[] | boolean;
-export type RpcArguments = Record<string, string | ParticipantAnswer>;
-// `null` means the request was rejected with INVALID_REQUEST, `"INVALID_ANSWER"`
-// means the request was understood but its answer was rejected with INVALID_ANSWER,
-// and `"INVALID_QUALITY"` means a rating request carried an unusable quality value.
-export type ReadArguments = (
-  request: Request,
-) => Promise<RpcArguments | null | "INVALID_ANSWER" | "INVALID_QUALITY">;
+export type RpcArguments = Record<string, ParticipantAnswer | number | null>;
+type ReadArguments = (request: Request) => Promise<RpcArguments | null>;
 type RpcError = { status: number; code: string; message: string };
 type RpcErrorMapping = {
   sqlState: string;
@@ -30,6 +23,20 @@ type RpcErrorMapping = {
 // status, SQLSTATE and message must all match before a code is revealed; any other
 // database error stays hidden behind the generic 503 response.
 const rpcErrorMappings: readonly RpcErrorMapping[] = [
+  { sqlState: "PT403", status: 403, marker: "STUDENT_ACCOUNT_REQUIRED", code: "STUDENT_ACCOUNT_REQUIRED",
+    message: "请登录已注册的学生账户。" },
+  { sqlState: "PT404", status: 404, marker: "QUESTION_NOT_FOUND", code: "QUESTION_NOT_FOUND",
+    message: "这道题目前不在练习目录中。" },
+  { sqlState: "PT400", status: 400, marker: "INVALID_REQUEST", code: "INVALID_REQUEST",
+    message: "请求参数无效。" },
+  { sqlState: "PT400", status: 400, marker: "INVALID_COMMENT", code: "INVALID_COMMENT",
+    message: "请填写 1–2000 字的反馈意见。" },
+  { sqlState: "PT409", status: 409, marker: "COMMENT_ALREADY_SUBMITTED", code: "COMMENT_ALREADY_SUBMITTED",
+    message: "该题已经保存过意见。" },
+  { sqlState: "PT409", status: 409, marker: "RETRY_ALREADY_SUBMITTED", code: "RETRY_ALREADY_SUBMITTED",
+    message: "这次复练已经提交。" },
+  { sqlState: "PT400", status: 400, marker: "INVALID_QUALITY", code: "INVALID_QUALITY",
+    message: "请选择低或高。" },
   {
     sqlState: "PT409",
     status: 409,
@@ -125,12 +132,12 @@ export function isUuid(value: unknown): value is string {
 // Reads are deliberately absent, so every endpoint is limited by the RPC name it calls
 // rather than by a caller-supplied flag that a future write could forget to set.
 const limitedWriteRpcNames = new Set<string>([
-  "start_or_resume_session_for_participant",
-  "start_next_review_session_for_participant",
-  "submit_answer_for_participant",
-  "submit_rating_for_participant",
-  "submit_review_answer_for_participant",
-  "submit_review_rating_for_participant",
+  "save_student_position",
+  "submit_student_answer",
+  "review_student_mistake",
+  "submit_student_retry",
+  "save_student_rating",
+  "save_student_comment",
 ]);
 
 // Reads a JSON body that must hold exactly one UUID field and maps it to the
@@ -155,94 +162,6 @@ export async function readUuidBody(
   }
 
   return { ["p_" + key]: entries[0][1] };
-}
-
-// Reads `{ session_id, assignment_id, answer }` for answer submission. Extra or
-// missing fields, wrong types and non-UUID identifiers are INVALID_REQUEST;
-// identifiers are passed through untouched so the database validates membership.
-export async function readAnswerBody(request: Request): Promise<RpcArguments | null | "INVALID_ANSWER"> {
-  const contentType = request.headers.get("Content-Type")?.split(";")[0].trim().toLowerCase();
-  if (contentType !== "application/json") {
-    return null;
-  }
-
-  const body: unknown = await request.json().catch(() => null);
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return null;
-  }
-
-  const fields = body as Record<string, unknown>;
-  const keys = Object.keys(fields);
-  if (
-    keys.length !== 3 ||
-    !keys.every((key) =>
-      key === "session_id" || key === "assignment_id" || key === "answer"
-    ) ||
-    !isUuid(fields.session_id) ||
-    !isUuid(fields.assignment_id)
-  ) {
-    return null;
-  }
-
-  const answer = fields.answer;
-  const isText = (value: unknown) =>
-    typeof value === "string" && value.trim().length > 0;
-  const valid = isText(answer) ||
-    typeof answer === "boolean" ||
-    (Array.isArray(answer) && answer.length > 0 && answer.every(isText));
-  if (!valid) {
-    return "INVALID_ANSWER";
-  }
-
-  return {
-    p_session_id: fields.session_id,
-    p_assignment_id: fields.assignment_id,
-    p_answer: answer as ParticipantAnswer,
-  };
-}
-
-const ratingQualities = ["low", "medium", "high"] as const;
-type RatingQuality = (typeof ratingQualities)[number];
-
-// Reads `{ response_id, quality }` for rating submission. The shape, field names and
-// UUID must be exact, otherwise the request is INVALID_REQUEST; a present but unknown
-// quality is INVALID_QUALITY. The response id is passed through untouched so the
-// database validates that it belongs to the authenticated participant.
-export async function readRatingBody(
-  request: Request,
-): Promise<RpcArguments | null | "INVALID_QUALITY"> {
-  const contentType = request.headers.get("Content-Type")?.split(";")[0].trim().toLowerCase();
-  if (contentType !== "application/json") {
-    return null;
-  }
-
-  const body: unknown = await request.json().catch(() => null);
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return null;
-  }
-
-  const fields = body as Record<string, unknown>;
-  const keys = Object.keys(fields);
-  if (
-    keys.length !== 2 ||
-    !keys.every((key) => key === "response_id" || key === "quality") ||
-    !isUuid(fields.response_id)
-  ) {
-    return null;
-  }
-
-  const quality = fields.quality;
-  if (
-    typeof quality !== "string" ||
-    !ratingQualities.includes(quality as RatingQuality)
-  ) {
-    return "INVALID_QUALITY";
-  }
-
-  return {
-    p_response_id: fields.response_id,
-    p_quality: quality,
-  };
 }
 
 export function isHttpOrigin(value: string): boolean {
@@ -294,10 +213,17 @@ function diagnoseRpcError(payload: unknown, responseStatus: number): RpcError | 
     : null;
 }
 
-export function participantEndpoint(
+type RequestContext = {
+  headers: Headers;
+  error: (status: number, code: string, message: string) => Response;
+  unavailable: () => Response;
+  invalidRequest: () => Response;
+  rateLimited: () => Response;
+};
+
+export function participantRequest(
   method: Method,
-  rpcName: string,
-  readArguments?: ReadArguments,
+  handle: (request: Request, context: RequestContext) => Response | Promise<Response>,
 ) {
   const allowedOrigins = new Set(
     (Deno.env.get("EXAMERFRAME_ALLOWED_ORIGINS") ?? "").split(",")
@@ -315,8 +241,6 @@ export function participantEndpoint(
       error(503, "SERVICE_UNAVAILABLE", "服务暂时无法使用，请稍后重试。");
     const invalidRequest = () =>
       error(400, "INVALID_REQUEST", "请求参数无效。");
-    const unauthorized = () =>
-      error(401, "UNAUTHORIZED", "匿名登录会话无效，请重新登录。");
     const wrongMethod = () => {
       headers.set("Allow", method + ", OPTIONS");
       return error(405, "METHOD_NOT_ALLOWED", "此接口不支持该请求方法。");
@@ -360,6 +284,35 @@ export function participantEndpoint(
     if (request.method !== method) {
       return wrongMethod();
     }
+    if (new URL(request.url).search) return invalidRequest();
+    return handle(request, { headers, error, unavailable, invalidRequest, rateLimited });
+  };
+}
+
+export function legacyParticipantWriteEndpoint() {
+  return participantRequest("POST", (_request, { error }) =>
+    error(409, "REFRESH_AND_SIGN_IN", "复习入口已更新，请刷新页面并登录学生账户。"));
+}
+
+export function rpcRequestHeaders(key: string): Headers {
+  const headers = new Headers({ apikey: key, "Content-Type": "application/json" });
+  if (signedJwt.test(key)) headers.set("Authorization", "Bearer " + key);
+  return headers;
+}
+
+export type ReadStudentOperation = (request: Request) => Promise<
+  { rpcName: string; args: RpcArguments } | null | "INVALID_ANSWER" | "INVALID_QUALITY" | "INVALID_COMMENT"
+>;
+
+export function participantEndpoint(
+  method: Method,
+  route: string | ReadStudentOperation,
+  readArguments?: ReadArguments,
+) {
+  const registered = typeof route !== "string";
+  return participantRequest(method, async (request, { headers, error, unavailable, invalidRequest, rateLimited }) => {
+    const unauthorized = () =>
+      error(401, "UNAUTHORIZED", "登录会话已失效，请重新登录。");
 
     const token = request.headers.get("Authorization")?.match(/^Bearer +(\S+)$/i)?.[1];
     if (!token || !signedJwt.test(token)) {
@@ -393,31 +346,30 @@ export function participantEndpoint(
       if (!isUuid(user?.id)) {
         return unauthorized();
       }
-      if (user.is_anonymous !== true) {
+      if (registered && user.is_anonymous !== false) {
+        return error(403, "STUDENT_ACCOUNT_REQUIRED", "请登录已注册的学生账户。");
+      }
+      if (!registered && user.is_anonymous !== true) {
         return error(403, "ANONYMOUS_REQUIRED", "请使用匿名会话参与答题。");
       }
 
-      const argumentsForRpc = readArguments ? await readArguments(request) : {};
-      if (argumentsForRpc === null) {
-        return invalidRequest();
-      }
-      if (argumentsForRpc === "INVALID_ANSWER") {
+      const parsed = registered ? await route(request) : {
+        rpcName: route, args: readArguments ? await readArguments(request) : {},
+      };
+      if (parsed === null) return invalidRequest();
+      if (parsed === "INVALID_ANSWER") {
         return error(400, "INVALID_ANSWER", "答案格式不正确。");
       }
-      if (argumentsForRpc === "INVALID_QUALITY") {
-        return error(400, "INVALID_QUALITY", "评价等级无效，请选择低、中或高。");
+      if (parsed === "INVALID_QUALITY") {
+        return error(400, "INVALID_QUALITY", "请选择低或高。");
       }
-      if (new URL(request.url).search) {
-        return invalidRequest();
+      if (parsed === "INVALID_COMMENT") {
+        return error(400, "INVALID_COMMENT", "请填写 1–2000 字的反馈意见。");
       }
 
-      const rpcHeaders = new Headers({
-        apikey: serviceKey,
-        "Content-Type": "application/json",
-      });
-      if (signedJwt.test(serviceKey)) {
-        rpcHeaders.set("Authorization", "Bearer " + serviceKey);
-      }
+      const { rpcName, args } = parsed;
+      if (args === null) return invalidRequest();
+      const rpcHeaders = rpcRequestHeaders(serviceKey);
 
       // Write slot: a valid, verified request costs one slot before the business
       // RPC runs. A rate-limited answer is a boolean, never a missing row, and a
@@ -452,7 +404,7 @@ export function participantEndpoint(
       const result = await fetch(new URL("/rest/v1/rpc/" + rpcName, supabaseUrl), {
         method: "POST",
         headers: rpcHeaders,
-        body: JSON.stringify({ ...argumentsForRpc, p_participant_id: user.id }),
+        body: JSON.stringify({ ...args, p_participant_id: user.id }),
         redirect: "error",
         signal: AbortSignal.timeout(10_000),
       });
@@ -467,5 +419,5 @@ export function participantEndpoint(
     } catch {
       return unavailable();
     }
-  };
+  });
 }
